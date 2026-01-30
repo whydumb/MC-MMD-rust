@@ -1,0 +1,14 @@
+{
+  "key.categories.skinlayers3d": "3Dスキンレイヤー",
+  "key.skinlayers3d.action_wheel": "アクションホイールを開く",
+  "key.skinlayers3d.model_selector": "モデル選択を開く",
+  "key.skinlayers3d.reset_physics": "物理演算をリセット",
+  "key.skinlayers3d.reload_models": "モデル再読み込み",
+  "key.skinlayers3d.reload_properties": "プロパティ再読み込み",
+  "key.skinlayers3d.change_program": "プログラム切り替え",
+  "gui.skinlayers3d.action_wheel": "アクションホイール",
+  "gui.skinlayers3d.select_action": "アクションを選択",
+  "gui.skinlayers3d.model_selector": "モデル選択",
+  "gui.skinlayers3d.action_config": "アクションホイール設定",
+  "gui.skinlayers3d.rescan": "再スキャン"
+}

@@ -1,0 +1,15 @@
+{
+  "key.categories.skinlayers3d": "3D皮肤层",
+  "key.skinlayers3d.action_wheel": "打开动作轮盘",
+  "key.skinlayers3d.model_selector": "打开模型选择 (Alt+H 玩家 / H 女仆)",
+  "key.skinlayers3d.reset_physics": "重置玩家物理",
+  "key.skinlayers3d.reload_models": "重载模型",
+  "key.skinlayers3d.reload_properties": "重载属性配置",
+  "key.skinlayers3d.change_program": "切换着色器",
+  "gui.skinlayers3d.action_wheel": "动作选择轮盘",
+  "gui.skinlayers3d.select_action": "选择动作",
+  "gui.skinlayers3d.model_selector": "模型选择",
+  "gui.skinlayers3d.maid_model_selector": "女仆 MMD 模型选择",
+  "gui.skinlayers3d.action_config": "动作轮盘配置",
+  "gui.skinlayers3d.rescan": "重新扫描"
+}

@@ -1,0 +1,37 @@
+{
+	"schemaVersion": 1,
+	"id": "skinlayers3d",
+	"version": "${version}",
+	"name": "3D Skin Layers",
+	"description": "使用MMD模型替换Minecraft实体渲染的模组",
+	"authors": [
+		"shiroha233",
+		"kjkjkAIStudio(原作者)",
+		"asuka-mio",
+		"Gengorou-C"
+	],
+	"contact": {
+		"homepage": "https://github.com/shiroha233/3d-skin-layers",
+		"sources": "https://github.com/shiroha233/3d-skin-layers"
+	},
+	"license": "MIT",
+	"icon": "assets/skinlayers3d/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.shiroha.skinlayers3d.fabric.SkinLayers3DFabric"
+		],
+		"client": [
+			"com.shiroha.skinlayers3d.fabric.SkinLayers3DFabricClient"
+		]
+	},
+	"mixins": [
+		"skinlayers3d-common.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.15.0",
+		"minecraft": "~1.20.1",
+		"java": ">=17",
+		"fabric-api": "*"
+	}
+}

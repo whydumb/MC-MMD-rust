@@ -1,0 +1,1306 @@
+//! JNI 原生函数实现
+//!
+//! 对照 C++ 版 com_kAIS_KAIMyEntity_NativeFunc.h 实现所有接口
+//! 使用标准 jni 0.21 API
+
+use jni::objects::{JByteBuffer, JClass, JString};
+use jni::sys::{jboolean, jbyte, jfloat, jint, jlong, jstring};
+use jni::JNIEnv;
+use std::ptr;
+
+use crate::animation::{VmdAnimation, VmdFile};
+use crate::model::load_pmx;
+use crate::texture::load_texture;
+
+use super::{register_animation, register_model, register_texture, ANIMATIONS, MODELS, TEXTURES};
+
+const VERSION: &str = "Rust-20260125";
+
+// ============================================================================
+// 基础函数
+// ============================================================================
+
+/// 获取版本号
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetVersion(
+    env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    match env.new_string(VERSION) {
+        Ok(s) => s.into_raw(),
+        Err(_) => ptr::null_mut(),
+    }
+}
+
+/// 读取字节
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_ReadByte(
+    _env: JNIEnv,
+    _class: JClass,
+    data: jlong,
+    pos: jlong,
+) -> jbyte {
+    if data == 0 {
+        return 0;
+    }
+    unsafe {
+        let ptr = (data + pos) as *const u8;
+        *ptr as jbyte
+    }
+}
+
+/// 复制数据到 ByteBuffer
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_CopyDataToByteBuffer(
+    env: JNIEnv,
+    _class: JClass,
+    buffer: JByteBuffer,
+    data: jlong,
+    len: jlong,
+) {
+    if data == 0 {
+        return;
+    }
+
+    if let Ok(dst) = env.get_direct_buffer_address(&buffer) {
+        unsafe {
+            let src = data as *const u8;
+            ptr::copy_nonoverlapping(src, dst, len as usize);
+        }
+    }
+}
+
+// ============================================================================
+// 模型相关函数
+// ============================================================================
+
+/// 加载 PMX 模型
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_LoadModelPMX(
+    mut env: JNIEnv,
+    _class: JClass,
+    filename: JString,
+    _dir: JString,
+    _layer_count: jlong,
+) -> jlong {
+    let filename_str: String = match env.get_string(&filename) {
+        Ok(s) => s.into(),
+        Err(_) => return 0,
+    };
+
+    match load_pmx(&filename_str) {
+        Ok(mut model) => {
+            // 自动初始化物理系统
+            if !model.rigid_bodies.is_empty() {
+                log::info!("模型包含 {} 个刚体, {} 个关节, 自动初始化物理", 
+                    model.rigid_bodies.len(), model.joints.len());
+                model.init_physics();
+            }
+            register_model(model)
+        },
+        Err(e) => {
+            log::error!("Failed to load PMX: {}", e);
+            0
+        }
+    }
+}
+
+/// 加载 PMD 模型（暂不支持）
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_LoadModelPMD(
+    _env: JNIEnv,
+    _class: JClass,
+    _filename: JString,
+    _dir: JString,
+    _layer_count: jlong,
+) -> jlong {
+    log::warn!("PMD format not supported yet");
+    0
+}
+
+/// 删除模型
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_DeleteModel(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) {
+    let mut models = MODELS.write().unwrap();
+    models.remove(&model);
+}
+
+/// 更新模型
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_UpdateModel(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    delta_time: jfloat,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        // 更新动画（内部已包含物理更新）
+        model.tick_animation(delta_time);
+    }
+}
+
+// ============================================================================
+// 顶点数据函数
+// ============================================================================
+
+/// 获取顶点数量
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetVertexCount(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jlong {
+    let models = MODELS.read().unwrap();
+    models
+        .get(&model)
+        .map(|m| m.lock().unwrap().vertex_count() as jlong)
+        .unwrap_or(0)
+}
+
+/// 获取顶点位置数据指针
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetPoss(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jlong {
+    let models = MODELS.read().unwrap();
+    models
+        .get(&model)
+        .map(|m| m.lock().unwrap().get_positions_ptr() as jlong)
+        .unwrap_or(0)
+}
+
+/// 获取法线数据指针
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetNormals(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jlong {
+    let models = MODELS.read().unwrap();
+    models
+        .get(&model)
+        .map(|m| m.lock().unwrap().get_normals_ptr() as jlong)
+        .unwrap_or(0)
+}
+
+/// 获取 UV 数据指针
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetUVs(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jlong {
+    let models = MODELS.read().unwrap();
+    models
+        .get(&model)
+        .map(|m| m.lock().unwrap().get_uvs_ptr() as jlong)
+        .unwrap_or(0)
+}
+
+// ============================================================================
+// 索引数据函数
+// ============================================================================
+
+/// 获取索引元素大小
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetIndexElementSize(
+    _env: JNIEnv,
+    _class: JClass,
+    _model: jlong,
+) -> jlong {
+    4 // u32 索引
+}
+
+/// 获取索引数量
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetIndexCount(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jlong {
+    let models = MODELS.read().unwrap();
+    models
+        .get(&model)
+        .map(|m| m.lock().unwrap().index_count() as jlong)
+        .unwrap_or(0)
+}
+
+/// 获取索引数据指针
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetIndices(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jlong {
+    let models = MODELS.read().unwrap();
+    models
+        .get(&model)
+        .map(|m| m.lock().unwrap().get_indices_ptr() as jlong)
+        .unwrap_or(0)
+}
+
+// ============================================================================
+// 材质相关函数
+// ============================================================================
+
+/// 获取材质数量
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialCount(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jlong {
+    let models = MODELS.read().unwrap();
+    models
+        .get(&model)
+        .map(|m| m.lock().unwrap().material_count() as jlong)
+        .unwrap_or(0)
+}
+
+/// 获取材质纹理路径
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialTex(
+    env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    pos: jlong,
+) -> jstring {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        let idx = pos as usize;
+        if idx < model.materials.len() {
+            let tex_idx = model.materials[idx].texture_index;
+            if tex_idx >= 0 && (tex_idx as usize) < model.texture_paths.len() {
+                if let Ok(s) = env.new_string(&model.texture_paths[tex_idx as usize]) {
+                    return s.into_raw();
+                }
+            }
+        }
+    }
+    env.new_string("")
+        .map(|s| s.into_raw())
+        .unwrap_or(ptr::null_mut())
+}
+
+/// 获取材质 Sphere 纹理路径
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialSpTex(
+    env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    pos: jlong,
+) -> jstring {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        let idx = pos as usize;
+        if idx < model.materials.len() {
+            let env_idx = model.materials[idx].environment_index;
+            if env_idx >= 0 && (env_idx as usize) < model.texture_paths.len() {
+                if let Ok(s) = env.new_string(&model.texture_paths[env_idx as usize]) {
+                    return s.into_raw();
+                }
+            }
+        }
+    }
+    env.new_string("")
+        .map(|s| s.into_raw())
+        .unwrap_or(ptr::null_mut())
+}
+
+/// 获取材质 Toon 纹理路径
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialToonTex(
+    env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    pos: jlong,
+) -> jstring {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        let idx = pos as usize;
+        if idx < model.materials.len() {
+            let toon_idx = model.materials[idx].toon_index;
+            if toon_idx >= 0 && (toon_idx as usize) < model.texture_paths.len() {
+                if let Ok(s) = env.new_string(&model.texture_paths[toon_idx as usize]) {
+                    return s.into_raw();
+                }
+            }
+        }
+    }
+    env.new_string("")
+        .map(|s| s.into_raw())
+        .unwrap_or(ptr::null_mut())
+}
+
+// 颜色数据缓存（用于返回指针）
+thread_local! {
+    static COLOR_BUFFER: std::cell::RefCell<[f32; 4]> = std::cell::RefCell::new([0.0; 4]);
+}
+
+/// 获取材质环境光颜色指针
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialAmbient(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    pos: jlong,
+) -> jlong {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        let idx = pos as usize;
+        if idx < model.materials.len() {
+            let ambient = model.materials[idx].ambient;
+            COLOR_BUFFER.with(|buf| {
+                let mut b = buf.borrow_mut();
+                b[0] = ambient.x;
+                b[1] = ambient.y;
+                b[2] = ambient.z;
+                b[3] = 1.0;
+                b.as_ptr() as jlong
+            })
+        } else {
+            0
+        }
+    } else {
+        0
+    }
+}
+
+/// 获取材质漫反射颜色指针
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialDiffuse(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    pos: jlong,
+) -> jlong {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        let idx = pos as usize;
+        if idx < model.materials.len() {
+            let diffuse = model.materials[idx].diffuse;
+            COLOR_BUFFER.with(|buf| {
+                let mut b = buf.borrow_mut();
+                b[0] = diffuse.x;
+                b[1] = diffuse.y;
+                b[2] = diffuse.z;
+                b[3] = diffuse.w;
+                b.as_ptr() as jlong
+            })
+        } else {
+            0
+        }
+    } else {
+        0
+    }
+}
+
+/// 获取材质高光颜色指针
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialSpecular(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    pos: jlong,
+) -> jlong {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        let idx = pos as usize;
+        if idx < model.materials.len() {
+            let specular = model.materials[idx].specular;
+            COLOR_BUFFER.with(|buf| {
+                let mut b = buf.borrow_mut();
+                b[0] = specular.x;
+                b[1] = specular.y;
+                b[2] = specular.z;
+                b[3] = 1.0;
+                b.as_ptr() as jlong
+            })
+        } else {
+            0
+        }
+    } else {
+        0
+    }
+}
+
+/// 获取材质高光强度
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialSpecularPower(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    pos: jlong,
+) -> jfloat {
+    let models = MODELS.read().unwrap();
+    models
+        .get(&model)
+        .and_then(|m| {
+            let model = m.lock().unwrap();
+            model
+                .materials
+                .get(pos as usize)
+                .map(|mat| mat.specular_strength)
+        })
+        .unwrap_or(1.0)
+}
+
+/// 获取材质透明度
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialAlpha(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    pos: jlong,
+) -> jfloat {
+    let models = MODELS.read().unwrap();
+    models
+        .get(&model)
+        .and_then(|m| {
+            let model = m.lock().unwrap();
+            model.materials.get(pos as usize).map(|mat| mat.diffuse.w)
+        })
+        .unwrap_or(1.0)
+}
+
+/// 获取纹理乘法因子指针
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialTextureMulFactor(
+    _env: JNIEnv,
+    _class: JClass,
+    _model: jlong,
+    _pos: jlong,
+) -> jlong {
+    // 返回默认白色乘法因子
+    static DEFAULT_MUL: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+    DEFAULT_MUL.as_ptr() as jlong
+}
+
+/// 获取纹理加法因子指针
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialTextureAddFactor(
+    _env: JNIEnv,
+    _class: JClass,
+    _model: jlong,
+    _pos: jlong,
+) -> jlong {
+    static DEFAULT_ADD: [f32; 4] = [0.0, 0.0, 0.0, 0.0];
+    DEFAULT_ADD.as_ptr() as jlong
+}
+
+/// 获取 Sphere 纹理模式
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialSpTextureMode(
+    _env: JNIEnv,
+    _class: JClass,
+    _model: jlong,
+    _pos: jlong,
+) -> jint {
+    0 // 默认无 sphere map
+}
+
+/// 获取 Sphere 纹理乘法因子
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialSpTextureMulFactor(
+    _env: JNIEnv,
+    _class: JClass,
+    _model: jlong,
+    _pos: jlong,
+) -> jlong {
+    static DEFAULT_MUL: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+    DEFAULT_MUL.as_ptr() as jlong
+}
+
+/// 获取 Sphere 纹理加法因子
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialSpTextureAddFactor(
+    _env: JNIEnv,
+    _class: JClass,
+    _model: jlong,
+    _pos: jlong,
+) -> jlong {
+    static DEFAULT_ADD: [f32; 4] = [0.0, 0.0, 0.0, 0.0];
+    DEFAULT_ADD.as_ptr() as jlong
+}
+
+/// 获取 Toon 纹理乘法因子
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialToonTextureMulFactor(
+    _env: JNIEnv,
+    _class: JClass,
+    _model: jlong,
+    _pos: jlong,
+) -> jlong {
+    static DEFAULT_MUL: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+    DEFAULT_MUL.as_ptr() as jlong
+}
+
+/// 获取 Toon 纹理加法因子
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialToonTextureAddFactor(
+    _env: JNIEnv,
+    _class: JClass,
+    _model: jlong,
+    _pos: jlong,
+) -> jlong {
+    static DEFAULT_ADD: [f32; 4] = [0.0, 0.0, 0.0, 0.0];
+    DEFAULT_ADD.as_ptr() as jlong
+}
+
+/// 获取材质双面标志
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialBothFace(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    pos: jlong,
+) -> jboolean {
+    let models = MODELS.read().unwrap();
+    models
+        .get(&model)
+        .and_then(|m| {
+            let model = m.lock().unwrap();
+            model
+                .materials
+                .get(pos as usize)
+                .map(|mat| mat.is_double_sided())
+        })
+        .map(|v| if v { 1u8 } else { 0u8 })
+        .unwrap_or(0u8)
+}
+
+// ============================================================================
+// 子网格函数
+// ============================================================================
+
+/// 获取子网格数量
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetSubMeshCount(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jlong {
+    let models = MODELS.read().unwrap();
+    models
+        .get(&model)
+        .map(|m| m.lock().unwrap().submesh_count() as jlong)
+        .unwrap_or(0)
+}
+
+/// 获取子网格材质 ID
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetSubMeshMaterialID(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    pos: jlong,
+) -> jint {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        let idx = pos as usize;
+        if idx < model.submeshes.len() {
+            return model.submeshes[idx].material_id;
+        }
+    }
+    0
+}
+
+/// 获取子网格起始索引
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetSubMeshBeginIndex(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    pos: jlong,
+) -> jint {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        let idx = pos as usize;
+        if idx < model.submeshes.len() {
+            return model.submeshes[idx].begin_index as jint;
+        }
+    }
+    0
+}
+
+/// 获取子网格索引数量
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetSubMeshVertexCount(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    pos: jlong,
+) -> jint {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        let idx = pos as usize;
+        if idx < model.submeshes.len() {
+            return model.submeshes[idx].index_count as jint;
+        }
+    }
+    0
+}
+
+// ============================================================================
+// 动画相关函数
+// ============================================================================
+
+/// 切换动画（支持多动画层）
+/// layer: 动画层ID（0-3），0为基础层，1-3为叠加层
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_ChangeModelAnim(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    anim: jlong,
+    layer: jlong,
+) {
+    let models = MODELS.read().unwrap();
+    let animations = ANIMATIONS.read().unwrap();
+
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        let layer_id = layer as usize;
+        let anim_opt = animations.get(&anim).cloned();
+        model.set_layer_animation(layer_id, anim_opt);
+        model.play_layer(layer_id);
+    }
+}
+
+/// 重置物理（兼容旧接口，等同于 ResetPhysics）
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_ResetModelPhysics(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.reset_physics();
+    }
+}
+
+/// 加载动画
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_LoadAnimation(
+    mut env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    filename: JString,
+) -> jlong {
+    let filename_str: String = match env.get_string(&filename) {
+        Ok(s) => s.into(),
+        Err(_) => return 0,
+    };
+
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+
+        match VmdFile::load(&filename_str) {
+            Ok(vmd) => {
+                let animation =
+                    VmdAnimation::from_vmd(&vmd, &model.bone_manager, &model.morph_manager);
+                return register_animation(animation);
+            }
+            Err(e) => {
+                log::error!("Failed to load VMD: {}", e);
+            }
+        }
+    }
+    0
+}
+
+/// 删除动画
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_DeleteAnimation(
+    _env: JNIEnv,
+    _class: JClass,
+    anim: jlong,
+) {
+    let mut animations = ANIMATIONS.write().unwrap();
+    animations.remove(&anim);
+}
+
+/// 设置头部角度
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_SetHeadAngle(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    head_x: jfloat,
+    head_y: jfloat,
+    head_z: jfloat,
+    _is_head_in_sync: jboolean,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.set_head_angle(head_x, head_y, head_z);
+    }
+}
+
+// ============================================================================
+// 动画层控制函数（新增）
+// ============================================================================
+
+/// 播放指定层的动画
+/// layer: 动画层ID（0-3）
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_PlayLayer(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    layer: jlong,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.play_layer(layer as usize);
+    }
+}
+
+/// 停止指定层的动画
+/// layer: 动画层ID（0-3）
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_StopLayer(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    layer: jlong,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.stop_layer(layer as usize);
+    }
+}
+
+/// 暂停指定层的动画
+/// layer: 动画层ID（0-3）
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_PauseLayer(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    layer: jlong,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.pause_layer(layer as usize);
+    }
+}
+
+/// 恢复指定层的动画
+/// layer: 动画层ID（0-3）
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_ResumeLayer(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    layer: jlong,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.resume_layer(layer as usize);
+    }
+}
+
+/// 设置动画层权重
+/// layer: 动画层ID（0-3）
+/// weight: 权重值（0.0 - 1.0）
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_SetLayerWeight(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    layer: jlong,
+    weight: jfloat,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.set_layer_weight(layer as usize, weight);
+    }
+}
+
+/// 设置动画层播放速度
+/// layer: 动画层ID（0-3）
+/// speed: 速度倍率（0.0+，1.0为正常速度）
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_SetLayerSpeed(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    layer: jlong,
+    speed: jfloat,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.set_layer_speed(layer as usize, speed);
+    }
+}
+
+/// 跳转到指定帧
+/// layer: 动画层ID（0-3）
+/// frame: 目标帧号
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_SeekLayer(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    layer: jlong,
+    frame: jfloat,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.seek_layer(layer as usize, frame);
+    }
+}
+
+/// 设置动画层淡入淡出时间
+/// layer: 动画层ID（0-3）
+/// fadeIn: 淡入时间（秒）
+/// fadeOut: 淡出时间（秒）
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_SetLayerFadeTimes(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    layer: jlong,
+    fade_in: jfloat,
+    fade_out: jfloat,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.set_layer_fade_times(layer as usize, fade_in, fade_out);
+    }
+}
+
+/// 获取动画层最大帧数
+/// layer: 动画层ID（0-3）
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetLayerMaxFrame(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    layer: jlong,
+) -> jfloat {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        return model.get_layer_max_frame(layer as usize) as jfloat;
+    }
+    0.0
+}
+
+// ============================================================================
+// 纹理相关函数
+// ============================================================================
+
+/// 加载纹理
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_LoadTexture(
+    mut env: JNIEnv,
+    _class: JClass,
+    filename: JString,
+) -> jlong {
+    let filename_str: String = match env.get_string(&filename) {
+        Ok(s) => s.into(),
+        Err(_) => return 0,
+    };
+
+    match load_texture(&filename_str) {
+        Ok(texture) => register_texture(texture),
+        Err(e) => {
+            log::error!("Failed to load texture: {}", e);
+            0
+        }
+    }
+}
+
+/// 删除纹理
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_DeleteTexture(
+    _env: JNIEnv,
+    _class: JClass,
+    tex: jlong,
+) {
+    let mut textures = TEXTURES.write().unwrap();
+    textures.remove(&tex);
+}
+
+/// 获取纹理宽度
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetTextureX(
+    _env: JNIEnv,
+    _class: JClass,
+    tex: jlong,
+) -> jint {
+    let textures = TEXTURES.read().unwrap();
+    textures.get(&tex).map(|t| t.width as jint).unwrap_or(0)
+}
+
+/// 获取纹理高度
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetTextureY(
+    _env: JNIEnv,
+    _class: JClass,
+    tex: jlong,
+) -> jint {
+    let textures = TEXTURES.read().unwrap();
+    textures.get(&tex).map(|t| t.height as jint).unwrap_or(0)
+}
+
+/// 获取纹理数据指针
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetTextureData(
+    _env: JNIEnv,
+    _class: JClass,
+    tex: jlong,
+) -> jlong {
+    let textures = TEXTURES.read().unwrap();
+    textures
+        .get(&tex)
+        .map(|t| t.data.as_ptr() as jlong)
+        .unwrap_or(0)
+}
+
+/// 检查纹理是否有透明通道
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_TextureHasAlpha(
+    _env: JNIEnv,
+    _class: JClass,
+    tex: jlong,
+) -> jboolean {
+    let textures = TEXTURES.read().unwrap();
+    textures
+        .get(&tex)
+        .map(|t| if t.has_alpha { 1u8 } else { 0u8 })
+        .unwrap_or(0u8)
+}
+
+// ============================================================================
+// 矩阵相关函数
+// ============================================================================
+
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+
+/// 矩阵存储
+static MATRICES: Lazy<Mutex<Vec<glam::Mat4>>> = Lazy::new(|| Mutex::new(Vec::new()));
+
+/// 创建矩阵
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_CreateMat(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jlong {
+    let mut matrices = MATRICES.lock().unwrap();
+    matrices.push(glam::Mat4::IDENTITY);
+    // 返回矩阵在 Vec 中的指针
+    let idx = matrices.len() - 1;
+    matrices.as_ptr().wrapping_add(idx) as jlong
+}
+
+/// 删除矩阵
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_DeleteMat(
+    _env: JNIEnv,
+    _class: JClass,
+    _mat: jlong,
+) {
+    // 简化实现：不实际删除，避免指针失效
+}
+
+/// 获取右手矩阵
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetRightHandMat(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    mat: jlong,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        let hand_mat = model.get_right_hand_matrix();
+        unsafe {
+            let mat_ptr = mat as *mut glam::Mat4;
+            if !mat_ptr.is_null() {
+                *mat_ptr = hand_mat;
+            }
+        }
+    }
+}
+
+/// 获取左手矩阵
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetLeftHandMat(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    mat: jlong,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        let hand_mat = model.get_left_hand_matrix();
+        unsafe {
+            let mat_ptr = mat as *mut glam::Mat4;
+            if !mat_ptr.is_null() {
+                *mat_ptr = hand_mat;
+            }
+        }
+    }
+}
+
+// ============================================================================
+// 物理系统相关函数
+// ============================================================================
+
+/// 初始化模型物理系统
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_InitPhysics(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jboolean {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        if model.init_physics() {
+            return 1;
+        }
+    }
+    0
+}
+
+/// 重置物理系统
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_ResetPhysics(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.reset_physics();
+    }
+}
+
+/// 启用/禁用物理
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_SetPhysicsEnabled(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    enabled: jboolean,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.set_physics_enabled(enabled != 0);
+    }
+}
+
+/// 获取物理是否启用
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_IsPhysicsEnabled(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jboolean {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        if model.is_physics_enabled() {
+            return 1;
+        }
+    }
+    0
+}
+
+/// 获取物理是否已初始化
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_HasPhysics(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jboolean {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        if model.has_physics() {
+            return 1;
+        }
+    }
+    0
+}
+
+/// 获取物理调试信息（返回 JSON 字符串）
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetPhysicsDebugInfo(
+    env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jstring {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        let debug_info = model.get_physics_debug_info();
+        if let Ok(s) = env.new_string(&debug_info) {
+            return s.into_raw();
+        }
+    }
+    env.new_string("{}")
+        .map(|s| s.into_raw())
+        .unwrap_or(ptr::null_mut())
+}
+
+// ============================================================================
+// 材质可见性控制（用于脱外套等功能）
+// ============================================================================
+
+/// 获取材质是否可见
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_IsMaterialVisible(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    index: jint,
+) -> jboolean {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        if model.is_material_visible(index as usize) { 1 } else { 0 }
+    } else {
+        1 // 默认可见
+    }
+}
+
+/// 设置材质可见性
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_SetMaterialVisible(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    index: jint,
+    visible: jboolean,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.set_material_visible(index as usize, visible != 0);
+    }
+}
+
+/// 根据材质名称设置可见性（支持部分匹配，返回匹配的材质数量）
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_SetMaterialVisibleByName(
+    mut env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    name: JString,
+    visible: jboolean,
+) -> jint {
+    let name_str: String = match env.get_string(&name) {
+        Ok(s) => s.into(),
+        Err(_) => return 0,
+    };
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.set_material_visible_by_name(&name_str, visible != 0) as jint
+    } else {
+        0
+    }
+}
+
+/// 设置所有材质可见性
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_SetAllMaterialsVisible(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    visible: jboolean,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.set_all_materials_visible(visible != 0);
+    }
+}
+
+/// 获取材质名称
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialName(
+    env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    index: jint,
+) -> jstring {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        if let Some(name) = model.get_material_name(index as usize) {
+            if let Ok(s) = env.new_string(name) {
+                return s.into_raw();
+            }
+        }
+    }
+    env.new_string("")
+        .map(|s| s.into_raw())
+        .unwrap_or(ptr::null_mut())
+}
+
+/// 获取所有材质名称（JSON 数组格式）
+#[no_mangle]
+pub extern "system" fn Java_com_kAIS_KAIMyEntity_NativeFunc_GetMaterialNames(
+    env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jstring {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        let names = model.get_material_names();
+        // 构建简单的 JSON 数组
+        let json = format!("[{}]", 
+            names.iter()
+                .map(|n| format!("\"{}\"", n.replace('"', "\\\"")))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        if let Ok(s) = env.new_string(&json) {
+            return s.into_raw();
+        }
+    }
+    env.new_string("[]")
+        .map(|s| s.into_raw())
+        .unwrap_or(ptr::null_mut())
+}

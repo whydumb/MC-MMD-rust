@@ -1,0 +1,771 @@
+//! MMD 运行时模型
+
+use crate::animation::{VmdAnimation, AnimationLayerManager};
+use crate::morph::MorphManager;
+use crate::physics::MMDPhysics;
+use crate::skeleton::BoneManager;
+use glam::{Mat4, Vec2, Vec3};
+use rayon::prelude::*;
+use std::sync::Arc;
+
+use super::{MmdMaterial, RuntimeVertex, SubMesh, VertexWeight};
+
+/// MMD 运行时模型
+pub struct MmdModel {
+    // 静态数据
+    pub name: String,
+    pub vertices: Vec<RuntimeVertex>,
+    pub indices: Vec<u32>,
+    pub weights: Vec<VertexWeight>,
+    pub materials: Vec<MmdMaterial>,
+    pub submeshes: Vec<SubMesh>,
+    pub texture_paths: Vec<String>,
+    pub rigid_bodies: Vec<mmd::pmx::rigid_body::RigidBody>,
+    pub joints: Vec<mmd::pmx::joint::Joint>,
+
+    // 运行时数据
+    pub update_positions: Vec<Vec3>,
+    pub update_normals: Vec<Vec3>,
+    pub update_uvs: Vec<Vec2>,
+    /// JNI/渲染用平铺缓冲区（避免 Vec3/Vec2 内存对齐导致错位）
+    pub update_positions_raw: Vec<f32>,
+    pub update_normals_raw: Vec<f32>,
+    pub update_uvs_raw: Vec<f32>,
+
+    // 子系统
+    pub bone_manager: BoneManager,
+    pub morph_manager: MorphManager,
+
+    // 动画层系统（支持多轨并行动画）
+    animation_layer_manager: AnimationLayerManager,
+    
+    // 头部旋转
+    head_angle_x: f32,
+    head_angle_y: f32,
+    head_angle_z: f32,
+    debug_logged: bool,
+    
+    // 模型全局变换
+    model_transform: Mat4,
+    
+    // 物理系统
+    physics: Option<MMDPhysics>,
+    physics_enabled: bool,
+    
+    // 材质可见性控制（用于脱外套等功能）
+    material_visible: Vec<bool>,
+}
+
+impl MmdModel {
+    /// 创建空模型
+    pub fn new() -> Self {
+        Self {
+            name: String::new(),
+            vertices: Vec::new(),
+            indices: Vec::new(),
+            weights: Vec::new(),
+            materials: Vec::new(),
+            submeshes: Vec::new(),
+            texture_paths: Vec::new(),
+            rigid_bodies: Vec::new(),
+            joints: Vec::new(),
+            update_positions: Vec::new(),
+            update_normals: Vec::new(),
+            update_uvs: Vec::new(),
+            update_positions_raw: Vec::new(),
+            update_normals_raw: Vec::new(),
+            update_uvs_raw: Vec::new(),
+            bone_manager: BoneManager::new(),
+            morph_manager: MorphManager::new(),
+            animation_layer_manager: AnimationLayerManager::new(4), // 默认4层
+            head_angle_x: 0.0,
+            head_angle_y: 0.0,
+            head_angle_z: 0.0,
+            debug_logged: false,
+            model_transform: Mat4::IDENTITY,
+            physics: None,
+            physics_enabled: false,
+            material_visible: Vec::new(),
+        }
+    }
+
+    /// 获取顶点数量
+    pub fn vertex_count(&self) -> usize {
+        self.vertices.len()
+    }
+
+    /// 获取索引数量
+    pub fn index_count(&self) -> usize {
+        self.indices.len()
+    }
+
+    /// 获取材质数量
+    pub fn material_count(&self) -> usize {
+        self.materials.len()
+    }
+
+    /// 获取子网格数量
+    pub fn submesh_count(&self) -> usize {
+        self.submeshes.len()
+    }
+    
+    // ========== 材质可见性控制 ==========
+    
+    /// 初始化材质可见性（默认全部可见）
+    pub fn init_material_visibility(&mut self) {
+        self.material_visible = vec![true; self.materials.len()];
+    }
+    
+    /// 获取材质是否可见
+    pub fn is_material_visible(&self, index: usize) -> bool {
+        self.material_visible.get(index).copied().unwrap_or(true)
+    }
+    
+    /// 设置材质可见性
+    pub fn set_material_visible(&mut self, index: usize, visible: bool) {
+        if index < self.material_visible.len() {
+            self.material_visible[index] = visible;
+        }
+    }
+    
+    /// 根据材质名称设置可见性（支持部分匹配）
+    pub fn set_material_visible_by_name(&mut self, name: &str, visible: bool) -> usize {
+        let mut count = 0;
+        for (i, mat) in self.materials.iter().enumerate() {
+            if mat.name.contains(name) {
+                if i < self.material_visible.len() {
+                    self.material_visible[i] = visible;
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+    
+    /// 设置所有材质可见性
+    pub fn set_all_materials_visible(&mut self, visible: bool) {
+        for v in &mut self.material_visible {
+            *v = visible;
+        }
+    }
+    
+    /// 获取材质名称
+    pub fn get_material_name(&self, index: usize) -> Option<&str> {
+        self.materials.get(index).map(|m| m.name.as_str())
+    }
+    
+    /// 获取所有材质名称列表
+    pub fn get_material_names(&self) -> Vec<String> {
+        self.materials.iter().map(|m| m.name.clone()).collect()
+    }
+
+    /// 初始化动画状态
+    pub fn initialize_animation(&mut self) {
+        self.bone_manager.reset_all_transforms();
+        self.morph_manager.reset_all_weights();
+    }
+
+    /// 开始动画帧
+    pub fn begin_animation(&mut self) {
+        self.bone_manager.begin_update();
+    }
+
+    /// 结束动画帧
+    pub fn end_animation(&mut self) {
+        self.bone_manager.end_update();
+    }
+
+    /// 更新 Morph 动画
+    pub fn update_morph_animation(&mut self) {
+        self.morph_manager
+            .apply_morphs(&mut self.bone_manager, &mut self.update_positions);
+    }
+
+    /// 更新骨骼动画（物理前/后）
+    pub fn update_node_animation(&mut self, after_physics: bool) {
+        self.bone_manager.update_transforms(after_physics);
+    }
+
+    /// 更新顶点（蒙皮计算）- 使用 rayon 并行加速
+    pub fn update(&mut self) {
+        let bone_matrices = self.bone_manager.get_skinning_matrices();
+        let vertex_count = self.vertices.len();
+        let raw_len = vertex_count * 3;
+
+        if self.update_positions_raw.len() != raw_len {
+            self.update_positions_raw.resize(raw_len, 0.0);
+        }
+        if self.update_normals_raw.len() != raw_len {
+            self.update_normals_raw.resize(raw_len, 0.0);
+        }
+        if self.update_uvs_raw.len() != self.update_uvs.len() * 2 {
+            self.update_uvs_raw.resize(self.update_uvs.len() * 2, 0.0);
+        }
+        
+        // UV 拷贝（并行）
+        self.update_uvs_raw
+            .par_chunks_mut(2)
+            .zip(self.update_uvs.par_iter())
+            .for_each(|(chunk, uv)| {
+                chunk[0] = uv.x;
+                chunk[1] = uv.y;
+            });
+
+        // 并行蒙皮计算
+        let vertices = &self.vertices;
+        let weights = &self.weights;
+        
+        // 将输出切片分块，每个顶点对应 3 个 f32
+        let pos_raw = &mut self.update_positions_raw;
+        let norm_raw = &mut self.update_normals_raw;
+        let positions = &mut self.update_positions;
+        let normals = &mut self.update_normals;
+        
+        // 并行计算所有顶点
+        positions
+            .par_iter_mut()
+            .zip(normals.par_iter_mut())
+            .zip(pos_raw.par_chunks_mut(3))
+            .zip(norm_raw.par_chunks_mut(3))
+            .zip(vertices.par_iter())
+            .zip(weights.par_iter())
+            .for_each(|(((((pos_out, norm_out), pos_chunk), norm_chunk), vertex), weight)| {
+                let (pos, norm) = compute_vertex_skinning(
+                    vertex.position,
+                    vertex.normal,
+                    weight,
+                    &bone_matrices,
+                );
+                
+                *pos_out = pos;
+                *norm_out = norm;
+                
+                pos_chunk[0] = pos.x;
+                pos_chunk[1] = pos.y;
+                pos_chunk[2] = pos.z;
+                norm_chunk[0] = norm.x;
+                norm_chunk[1] = norm.y;
+                norm_chunk[2] = norm.z;
+            });
+
+        // 调试日志（只在首次执行）
+        if !self.debug_logged {
+            self.debug_logged = true;
+            log::info!(
+                "MMD Debug: vertex_count={}, pos_raw_len={}, uv_raw_len={} (rayon并行蒙皮)",
+                vertex_count,
+                self.update_positions_raw.len(),
+                self.update_uvs_raw.len(),
+            );
+        }
+    }
+
+    /// 完整动画更新流程
+    pub fn update_all_animation(&mut self, vmd: Option<&VmdAnimation>, frame: f32, _elapsed: f32) {
+        self.begin_animation();
+
+        if let Some(animation) = vmd {
+            animation.evaluate(frame, &mut self.bone_manager, &mut self.morph_manager);
+        }
+
+        // 应用头部旋转
+        self.apply_head_rotation();
+
+        self.update_morph_animation();
+        self.update_node_animation(false);
+        self.update_node_animation(true);
+
+        self.end_animation();
+        self.update();
+    }
+
+    /// 设置指定层的动画（新版多动画层接口）
+    pub fn set_layer_animation(&mut self, layer_id: usize, animation: Option<Arc<VmdAnimation>>) {
+        // 如果这是第一个层且设置了动画，先评估第一帧
+        // 避免骨骼瞬间回到 T-pose 导致物理系统异常
+        if layer_id == 0 {
+            if let Some(ref anim) = animation {
+                self.initialize_animation();
+                anim.evaluate(0.0, &mut self.bone_manager, &mut self.morph_manager);
+                self.begin_animation();
+                self.update_node_animation(false);
+                self.update_node_animation(true);
+                self.end_animation();
+            }
+        }
+        
+        self.animation_layer_manager.set_layer_animation(layer_id, animation);
+    }
+
+    /// 播放指定层的动画
+    pub fn play_layer(&mut self, layer_id: usize) {
+        self.animation_layer_manager.play_layer(layer_id);
+    }
+
+    /// 停止指定层的动画
+    pub fn stop_layer(&mut self, layer_id: usize) {
+        self.animation_layer_manager.stop_layer(layer_id);
+    }
+
+    /// 暂停指定层的动画
+    pub fn pause_layer(&mut self, layer_id: usize) {
+        self.animation_layer_manager.pause_layer(layer_id);
+    }
+
+    /// 恢复指定层的动画
+    pub fn resume_layer(&mut self, layer_id: usize) {
+        self.animation_layer_manager.resume_layer(layer_id);
+    }
+
+    /// 设置层权重
+    pub fn set_layer_weight(&mut self, layer_id: usize, weight: f32) {
+        self.animation_layer_manager.set_layer_weight(layer_id, weight);
+    }
+
+    /// 设置层播放速度
+    pub fn set_layer_speed(&mut self, layer_id: usize, speed: f32) {
+        self.animation_layer_manager.set_layer_speed(layer_id, speed);
+    }
+
+    /// 跳转到指定帧
+    pub fn seek_layer(&mut self, layer_id: usize, frame: f32) {
+        self.animation_layer_manager.seek_layer(layer_id, frame);
+    }
+
+    /// 设置层淡入淡出时间
+    pub fn set_layer_fade_times(&mut self, layer_id: usize, fade_in: f32, fade_out: f32) {
+        self.animation_layer_manager.set_layer_fade_times(layer_id, fade_in, fade_out);
+    }
+
+    /// 获取指定层的最大帧数
+    pub fn get_layer_max_frame(&self, layer_id: usize) -> u32 {
+        self.animation_layer_manager
+            .get_layer(layer_id)
+            .map(|l| l.max_frame())
+            .unwrap_or(0)
+    }
+
+    /// 获取所有活跃层中的最大帧数
+    pub fn get_max_frame(&self) -> u32 {
+        (0..self.animation_layer_manager.layer_count())
+            .map(|i| self.get_layer_max_frame(i))
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// 【兼容旧接口】设置动画（使用层0）
+    pub fn set_animation(&mut self, animation: Option<Arc<VmdAnimation>>) {
+        self.set_layer_animation(0, animation);
+        self.animation_layer_manager.play_layer(0);
+    }
+
+    /// 【兼容旧接口】获取当前动画的最大帧数
+    pub fn get_animation_max_frame(&self) -> u32 {
+        self.get_layer_max_frame(0)
+    }
+
+    /// 更新动画（每帧调用）- 多动画层版本
+    pub fn tick_animation(&mut self, elapsed: f32) {
+        // 更新所有动画层
+        self.animation_layer_manager.update(elapsed);
+
+        // 执行动画更新
+        self.begin_animation();
+
+        // 评估所有层并混合结果
+        self.animation_layer_manager.evaluate_normalized(
+            &mut self.bone_manager,
+            &mut self.morph_manager,
+        );
+
+        self.apply_head_rotation();
+        self.update_morph_animation();
+        
+        // 骨骼更新（物理前）
+        self.update_node_animation(false);
+        
+        // 物理更新
+        self.update_physics(elapsed);
+        
+        // 骨骼更新（物理后）
+        self.update_node_animation(true);
+        
+        // 清除物理骨骼保护（允许下一帧重新计算）
+        self.end_physics_update();
+
+        self.end_animation();
+        self.update();
+    }
+
+    /// 设置头部角度
+    pub fn set_head_angle(&mut self, x: f32, y: f32, z: f32) {
+        self.head_angle_x = x;
+        self.head_angle_y = y;
+        self.head_angle_z = z;
+    }
+
+    /// 应用头部旋转到骨骼
+    fn apply_head_rotation(&mut self) {
+        // 查找头部骨骼（常见名称）
+        let head_names = ["頭", "head", "Head", "あたま"];
+
+        for name in &head_names {
+            if let Some(bone_idx) = self.bone_manager.find_bone_by_name(name) {
+                let rotation = glam::Quat::from_euler(
+                    glam::EulerRot::XYZ,
+                    self.head_angle_x,
+                    self.head_angle_y,
+                    self.head_angle_z,
+                );
+                self.bone_manager.add_bone_rotation(bone_idx, rotation);
+                break;
+            }
+        }
+    }
+    
+    /// 设置模型全局变换
+    pub fn set_model_transform(&mut self, transform: Mat4) {
+        self.model_transform = transform;
+    }
+    
+    /// 获取模型全局变换
+    pub fn model_transform(&self) -> Mat4 {
+        self.model_transform
+    }
+
+    /// 获取右手矩阵
+    pub fn get_right_hand_matrix(&self) -> Mat4 {
+        let names = ["右手首", "右腕", "right_hand", "RightHand"];
+        for name in &names {
+            if let Some(idx) = self.bone_manager.find_bone_by_name(name) {
+                return self.bone_manager.get_global_transform(idx);
+            }
+        }
+        Mat4::IDENTITY
+    }
+
+    /// 获取左手矩阵
+    pub fn get_left_hand_matrix(&self) -> Mat4 {
+        let names = ["左手首", "左腕", "left_hand", "LeftHand"];
+        for name in &names {
+            if let Some(idx) = self.bone_manager.find_bone_by_name(name) {
+                return self.bone_manager.get_global_transform(idx);
+            }
+        }
+        Mat4::IDENTITY
+    }
+
+    /// 获取更新后的顶点位置数据指针
+    pub fn get_positions_ptr(&self) -> *const f32 {
+        self.update_positions_raw.as_ptr()
+    }
+
+    /// 获取更新后的法线数据指针
+    pub fn get_normals_ptr(&self) -> *const f32 {
+        self.update_normals_raw.as_ptr()
+    }
+
+    /// 获取 UV 数据指针
+    pub fn get_uvs_ptr(&self) -> *const f32 {
+        self.update_uvs_raw.as_ptr()
+    }
+
+    /// 获取索引数据指针
+    pub fn get_indices_ptr(&self) -> *const u32 {
+        self.indices.as_ptr()
+    }
+    
+    // ========== 物理系统方法 ==========
+    
+    /// 初始化物理系统
+    pub fn init_physics(&mut self) -> bool {
+        if self.rigid_bodies.is_empty() {
+            log::debug!("模型没有刚体数据，跳过物理初始化");
+            return false;
+        }
+        
+        let mut physics = MMDPhysics::new();
+        
+        // 添加刚体
+        for pmx_rb in &self.rigid_bodies {
+            let bone_transform = if pmx_rb.bone_index >= 0 {
+                Some(self.bone_manager.get_global_transform(pmx_rb.bone_index as usize))
+            } else {
+                None
+            };
+            physics.add_rigid_body(pmx_rb, bone_transform);
+        }
+        
+        // 添加关节
+        for pmx_joint in &self.joints {
+            physics.add_joint(pmx_joint);
+        }
+        
+        // 统计刚体类型
+        use crate::physics::RigidBodyType;
+        let kinematic_count = physics.mmd_rigid_bodies.iter()
+            .filter(|rb| rb.body_type == RigidBodyType::Kinematic)
+            .count();
+        let dynamic_count = physics.mmd_rigid_bodies.iter()
+            .filter(|rb| rb.body_type == RigidBodyType::Dynamic)
+            .count();
+        let dynamic_bone_count = physics.mmd_rigid_bodies.iter()
+            .filter(|rb| rb.body_type == RigidBodyType::DynamicWithBonePosition)
+            .count();
+        
+        log::info!(
+            "物理系统初始化完成: {} 个刚体 ({}运动学 + {}动态 + {}动态跟骨), {} 个关节",
+            physics.rigid_body_count(),
+            kinematic_count, dynamic_count, dynamic_bone_count,
+            physics.joint_count()
+        );
+        
+        self.physics = Some(physics);
+        self.physics_enabled = true;
+        true
+    }
+    
+    /// 重置物理系统
+    pub fn reset_physics(&mut self) {
+        if let Some(ref mut physics) = self.physics {
+            physics.reset();
+        }
+    }
+    
+    /// 启用/禁用物理
+    pub fn set_physics_enabled(&mut self, enabled: bool) {
+        self.physics_enabled = enabled;
+    }
+    
+    /// 获取物理是否启用
+    pub fn is_physics_enabled(&self) -> bool {
+        self.physics_enabled && self.physics.is_some()
+    }
+    
+    /// 获取物理系统是否已初始化
+    pub fn has_physics(&self) -> bool {
+        self.physics.is_some()
+    }
+    
+    /// 更新物理模拟
+    pub fn update_physics(&mut self, delta_time: f32) {
+        if !self.physics_enabled {
+            return;
+        }
+        
+        if let Some(ref mut physics) = self.physics {
+            // 同步运动学刚体（跟随骨骼）
+            let bone_transforms: Vec<Mat4> = (0..self.bone_manager.bone_count())
+                .map(|i| self.bone_manager.get_global_transform(i))
+                .collect();
+            physics.sync_kinematic_bodies(&bone_transforms);
+            
+            // 更新物理模拟
+            physics.update(delta_time);
+            
+            // 获取当前骨骼变换
+            let current_bone_transforms: Vec<Mat4> = (0..self.bone_manager.bone_count())
+                .map(|i| self.bone_manager.get_global_transform(i))
+                .collect();
+            
+            // 获取动态刚体关联的骨骼变换和索引
+            let dynamic_bone_transforms = physics.get_dynamic_bone_transforms(&current_bone_transforms);
+            let physics_bone_indices = physics.get_dynamic_bone_indices();
+            
+            // 设置物理骨骼索引，防止后续骨骼更新覆盖物理变换
+            self.bone_manager.set_physics_bone_indices(physics_bone_indices.clone());
+            
+            // 只更新被物理驱动的骨骼（使用不递归更新子骨骼的方法）
+            for (bone_idx, transform) in dynamic_bone_transforms {
+                self.bone_manager.set_global_transform_physics(bone_idx, transform);
+            }
+            
+            // 更新非物理骨骼的全局变换（它们可能是物理骨骼的子骨骼）
+            self.bone_manager.update_non_physics_children(&physics_bone_indices);
+        }
+    }
+    
+    /// 结束物理更新，清除物理骨骼保护
+    /// 在 tick_animation 结束时调用
+    fn end_physics_update(&mut self) {
+        self.bone_manager.clear_physics_bone_indices();
+    }
+    
+    /// 获取物理调试信息（JSON 格式）
+    pub fn get_physics_debug_info(&self) -> String {
+        use crate::physics::RigidBodyType;
+        
+        if let Some(ref physics) = self.physics {
+            let mut info = String::from("{\n");
+            
+            // 刚体信息
+            info.push_str("  \"rigid_bodies\": [\n");
+            for (i, rb) in physics.mmd_rigid_bodies.iter().enumerate() {
+                let type_str = match rb.body_type {
+                    RigidBodyType::Kinematic => "Kinematic",
+                    RigidBodyType::Dynamic => "Dynamic",
+                    RigidBodyType::DynamicWithBonePosition => "DynamicWithBonePosition",
+                };
+                info.push_str(&format!(
+                    "    {{\"index\": {}, \"name\": \"{}\", \"type\": \"{}\", \"bone\": {}, \"mass\": {:.3}}}",
+                    i, rb.name, type_str, rb.bone_index, rb.mass
+                ));
+                if i < physics.mmd_rigid_bodies.len() - 1 {
+                    info.push_str(",\n");
+                } else {
+                    info.push_str("\n");
+                }
+            }
+            info.push_str("  ],\n");
+            
+            // 关节信息
+            info.push_str("  \"joints\": [\n");
+            for (i, joint) in physics.mmd_joints.iter().enumerate() {
+                info.push_str(&format!(
+                    "    {{\"index\": {}, \"name\": \"{}\", \"rb_a\": {}, \"rb_b\": {}, ",
+                    i, joint.name, joint.rigid_body_a_index, joint.rigid_body_b_index
+                ));
+                info.push_str(&format!(
+                    "\"lin_lower\": [{:.3},{:.3},{:.3}], \"lin_upper\": [{:.3},{:.3},{:.3}], ",
+                    joint.linear_lower.x, joint.linear_lower.y, joint.linear_lower.z,
+                    joint.linear_upper.x, joint.linear_upper.y, joint.linear_upper.z
+                ));
+                info.push_str(&format!(
+                    "\"ang_lower\": [{:.3},{:.3},{:.3}], \"ang_upper\": [{:.3},{:.3},{:.3}], ",
+                    joint.angular_lower.x, joint.angular_lower.y, joint.angular_lower.z,
+                    joint.angular_upper.x, joint.angular_upper.y, joint.angular_upper.z
+                ));
+                info.push_str(&format!(
+                    "\"lin_spring\": [{:.3},{:.3},{:.3}], \"ang_spring\": [{:.3},{:.3},{:.3}]}}",
+                    joint.linear_spring.x, joint.linear_spring.y, joint.linear_spring.z,
+                    joint.angular_spring.x, joint.angular_spring.y, joint.angular_spring.z
+                ));
+                if i < physics.mmd_joints.len() - 1 {
+                    info.push_str(",\n");
+                } else {
+                    info.push_str("\n");
+                }
+            }
+            info.push_str("  ],\n");
+            
+            // 统计信息
+            let kinematic_count = physics.mmd_rigid_bodies.iter()
+                .filter(|rb| rb.body_type == RigidBodyType::Kinematic).count();
+            let dynamic_count = physics.mmd_rigid_bodies.iter()
+                .filter(|rb| rb.body_type == RigidBodyType::Dynamic).count();
+            let dynamic_bone_count = physics.mmd_rigid_bodies.iter()
+                .filter(|rb| rb.body_type == RigidBodyType::DynamicWithBonePosition).count();
+            
+            info.push_str(&format!(
+                "  \"stats\": {{\"total_rb\": {}, \"kinematic\": {}, \"dynamic\": {}, \"dynamic_bone\": {}, \"joints\": {}}}\n",
+                physics.mmd_rigid_bodies.len(), kinematic_count, dynamic_count, dynamic_bone_count, physics.mmd_joints.len()
+            ));
+            
+            info.push_str("}");
+            info
+        } else {
+            String::from("{\"error\": \"no physics\"}")
+        }
+    }
+}
+
+impl Default for MmdModel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 计算单个顶点的蒙皮
+fn compute_vertex_skinning(
+    position: Vec3,
+    normal: Vec3,
+    weight: &VertexWeight,
+    matrices: &[Mat4],
+) -> (Vec3, Vec3) {
+    match weight {
+        VertexWeight::Bdef1 { bone } => {
+            let m = matrices
+                .get(*bone as usize)
+                .copied()
+                .unwrap_or(Mat4::IDENTITY);
+            let pos = m.transform_point3(position);
+            let norm = m.transform_vector3(normal).normalize();
+            (pos, norm)
+        }
+        VertexWeight::Bdef2 { bones, weight } => {
+            let m0 = matrices
+                .get(bones[0] as usize)
+                .copied()
+                .unwrap_or(Mat4::IDENTITY);
+            let m1 = matrices
+                .get(bones[1] as usize)
+                .copied()
+                .unwrap_or(Mat4::IDENTITY);
+            let w0 = *weight;
+            let w1 = 1.0 - w0;
+
+            let pos = m0.transform_point3(position) * w0 + m1.transform_point3(position) * w1;
+            let norm =
+                (m0.transform_vector3(normal) * w0 + m1.transform_vector3(normal) * w1).normalize();
+            (pos, norm)
+        }
+        VertexWeight::Bdef4 { bones, weights } => {
+            let mut pos = Vec3::ZERO;
+            let mut norm = Vec3::ZERO;
+
+            for i in 0..4 {
+                let m = matrices
+                    .get(bones[i] as usize)
+                    .copied()
+                    .unwrap_or(Mat4::IDENTITY);
+                let w = weights[i];
+                pos += m.transform_point3(position) * w;
+                norm += m.transform_vector3(normal) * w;
+            }
+
+            (pos, norm.normalize())
+        }
+        VertexWeight::Sdef {
+            bones,
+            weight,
+            c: _,
+            r0: _,
+            r1: _,
+        } => {
+            // SDEF 球面变形
+            let m0 = matrices
+                .get(bones[0] as usize)
+                .copied()
+                .unwrap_or(Mat4::IDENTITY);
+            let m1 = matrices
+                .get(bones[1] as usize)
+                .copied()
+                .unwrap_or(Mat4::IDENTITY);
+            let w0 = *weight;
+            let w1 = 1.0 - w0;
+
+            // 简化实现：退化为 BDEF2
+            let pos = m0.transform_point3(position) * w0 + m1.transform_point3(position) * w1;
+            let norm =
+                (m0.transform_vector3(normal) * w0 + m1.transform_vector3(normal) * w1).normalize();
+            (pos, norm)
+        }
+        VertexWeight::Qdef { bones, weights } => {
+            // QDEF 与 BDEF4 相同处理
+            let mut pos = Vec3::ZERO;
+            let mut norm = Vec3::ZERO;
+
+            for i in 0..4 {
+                let m = matrices
+                    .get(bones[i] as usize)
+                    .copied()
+                    .unwrap_or(Mat4::IDENTITY);
+                let w = weights[i];
+                pos += m.transform_point3(position) * w;
+                norm += m.transform_vector3(normal) * w;
+            }
+
+            (pos, norm.normalize())
+        }
+    }
+}

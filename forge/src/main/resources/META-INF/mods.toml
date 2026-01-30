@@ -1,0 +1,26 @@
+# Forge Mods.toml 配置文件
+modLoader = "javafml"
+loaderVersion = "[47,)"
+license = "MIT"
+
+[[mods]]
+modId = "skinlayers3d"
+version = "${mod_version}"
+displayName = "3D Skin Layers"
+authors = "shiroha233, kjkjkAIStudio(原作者), asuka-mio, Gengorou-C"
+description = '''使用MMD模型替换Minecraft实体渲染的模组'''
+logoFile = "assets/skinlayers3d/icon.png"
+
+[[dependencies.skinlayers3d]]
+modId = "forge"
+mandatory = true
+versionRange = "[47,48)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.skinlayers3d]]
+modId = "minecraft"
+mandatory = true
+versionRange = "[1.20.1,1.21)"
+ordering = "NONE"
+side = "BOTH"

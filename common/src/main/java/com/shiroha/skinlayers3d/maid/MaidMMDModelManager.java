@@ -1,0 +1,143 @@
+package com.shiroha.skinlayers3d.maid;
+
+import com.shiroha.skinlayers3d.renderer.animation.MMDAnimManager;
+import com.shiroha.skinlayers3d.renderer.core.IMMDModel;
+import com.shiroha.skinlayers3d.renderer.model.MMDModelManager;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * 女仆 MMD 模型管理器
+ * 
+ * 负责管理女仆实体与 MMD 模型的映射关系。
+ * 每个女仆可以绑定一个 MMD 模型，用于替代原版渲染。
+ */
+public class MaidMMDModelManager {
+    private static final Logger logger = LogManager.getLogger();
+    
+    // 女仆 UUID -> 模型名称 的映射
+    private static final Map<UUID, String> maidModelBindings = new ConcurrentHashMap<>();
+    
+    // 女仆 UUID -> 已加载模型 的映射
+    private static final Map<UUID, MMDModelManager.Model> loadedModels = new ConcurrentHashMap<>();
+    
+    /**
+     * 初始化管理器
+     */
+    public static void init() {
+        logger.info("女仆 MMD 模型管理器初始化完成");
+    }
+    
+    /**
+     * 为女仆绑定 MMD 模型
+     * 
+     * @param maidUUID 女仆 UUID
+     * @param modelName 模型名称（文件夹名）
+     */
+    public static void bindModel(UUID maidUUID, String modelName) {
+        if (modelName == null || modelName.isEmpty() || "默认 (原版渲染)".equals(modelName)) {
+            // 移除绑定
+            unbindModel(maidUUID);
+            return;
+        }
+        
+        String oldModel = maidModelBindings.get(maidUUID);
+        if (modelName.equals(oldModel)) {
+            return; // 相同模型，无需更新
+        }
+        
+        // 清理旧模型
+        if (loadedModels.containsKey(maidUUID)) {
+            loadedModels.remove(maidUUID);
+        }
+        
+        maidModelBindings.put(maidUUID, modelName);
+        logger.info("女仆 {} 绑定模型: {}", maidUUID, modelName);
+    }
+    
+    /**
+     * 解除女仆的模型绑定
+     * 
+     * @param maidUUID 女仆 UUID
+     */
+    public static void unbindModel(UUID maidUUID) {
+        maidModelBindings.remove(maidUUID);
+        loadedModels.remove(maidUUID);
+        logger.info("女仆 {} 解除模型绑定", maidUUID);
+    }
+    
+    /**
+     * 获取女仆绑定的模型名称
+     * 
+     * @param maidUUID 女仆 UUID
+     * @return 模型名称，如果没有绑定返回 null
+     */
+    public static String getBindingModelName(UUID maidUUID) {
+        return maidModelBindings.get(maidUUID);
+    }
+    
+    /**
+     * 检查女仆是否有绑定的 MMD 模型
+     * 
+     * @param maidUUID 女仆 UUID
+     * @return 是否有绑定
+     */
+    public static boolean hasMMDModel(UUID maidUUID) {
+        return maidModelBindings.containsKey(maidUUID);
+    }
+    
+    /**
+     * 获取女仆的 MMD 模型（带懒加载）
+     * 
+     * @param maidUUID 女仆 UUID
+     * @return 模型实例，如果没有绑定或加载失败返回 null
+     */
+    public static MMDModelManager.Model getModel(UUID maidUUID) {
+        String modelName = maidModelBindings.get(maidUUID);
+        if (modelName == null) {
+            return null;
+        }
+        
+        // 检查是否已加载
+        MMDModelManager.Model model = loadedModels.get(maidUUID);
+        if (model != null) {
+            model.updateAccessTime();
+            return model;
+        }
+        
+        // 懒加载模型
+        String cacheKey = "maid_" + maidUUID.toString();
+        model = MMDModelManager.GetModel(modelName, cacheKey);
+        if (model != null) {
+            loadedModels.put(maidUUID, model);
+            
+            // 设置默认动画
+            IMMDModel mmdModel = model.model;
+            mmdModel.ChangeAnim(MMDAnimManager.GetAnimModel(mmdModel, "idle"), 0);
+            
+            logger.info("女仆 {} 模型加载成功: {}", maidUUID, modelName);
+        }
+        
+        return model;
+    }
+    
+    /**
+     * 清理所有女仆模型绑定
+     */
+    public static void clearAll() {
+        maidModelBindings.clear();
+        loadedModels.clear();
+        logger.info("女仆模型绑定已清空");
+    }
+    
+    /**
+     * 获取已绑定模型的女仆数量
+     */
+    public static int getBindingCount() {
+        return maidModelBindings.size();
+    }
+}
