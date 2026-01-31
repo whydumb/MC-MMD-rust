@@ -3,6 +3,7 @@ package com.shiroha.skinlayers3d.renderer.render;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.shiroha.skinlayers3d.renderer.core.IMMDModel;
+import com.shiroha.skinlayers3d.renderer.core.RenderContext;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.player.AbstractClientPlayer;
@@ -77,7 +78,7 @@ public class InventoryRenderHelper {
         modelViewStack.mulPose(rotation);
         
         RenderSystem.setShader(GameRenderer::getRendertypeEntityTranslucentShader);
-        model.Render(player, entityYaw, 0.0f, new Vector3f(0.0f), tickDelta, modelViewStack, packedLight);
+        model.render(player, entityYaw, 0.0f, new Vector3f(0.0f), tickDelta, modelViewStack, packedLight, RenderContext.INVENTORY);
         
         modelViewStack.popPose();
         

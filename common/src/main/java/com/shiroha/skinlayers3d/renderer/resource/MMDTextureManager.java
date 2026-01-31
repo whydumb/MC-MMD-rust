@@ -69,13 +69,14 @@ public class MMDTextureManager {
      */
     public static void Cleanup() {
         if (textures != null) {
+            int count = textures.size();
             for (Texture tex : textures.values()) {
                 if (tex.tex > 0) {
                     GL46C.glDeleteTextures(tex.tex);
                 }
             }
             textures.clear();
-            logger.info("MMDTextureManager 已清理 {} 个纹理", textures.size());
+            logger.info("MMDTextureManager 已清理 {} 个纹理", count);
         }
     }
     

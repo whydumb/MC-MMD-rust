@@ -8,6 +8,7 @@
   "gui.skinlayers3d.config.model_switch": "Model Switch",
   "gui.skinlayers3d.config.action_select": "Action Select",
   "gui.skinlayers3d.config.material_control": "Material Control",
+  "gui.skinlayers3d.config.morph_select": "Expression Select",
   "gui.skinlayers3d.config.mod_settings": "Mod Settings",
   "gui.skinlayers3d.maid.model_switch": "Model Switch",
   "gui.skinlayers3d.maid.action_select": "Action Select",
@@ -61,5 +62,10 @@
   "gui.skinlayers3d.model_selector": "Model Selector",
   "gui.skinlayers3d.maid_model_selector": "Maid MMD Model Selector",
   "gui.skinlayers3d.action_config": "Action Wheel Config",
-  "gui.skinlayers3d.rescan": "Rescan"
+  "gui.skinlayers3d.rescan": "Rescan",
+  
+  "key.skinlayers3d.morph_wheel": "Expression Wheel",
+  "gui.skinlayers3d.morph_wheel": "Expression Wheel",
+  "gui.skinlayers3d.morph_config": "Expression Wheel Config",
+  "gui.skinlayers3d.reset_morph": "Reset Expression"
 }

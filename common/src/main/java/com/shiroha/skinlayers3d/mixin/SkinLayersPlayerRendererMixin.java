@@ -5,6 +5,7 @@ import com.shiroha.skinlayers3d.renderer.animation.AnimationStateManager;
 import com.shiroha.skinlayers3d.renderer.render.ItemRenderHelper;
 import com.shiroha.skinlayers3d.renderer.render.InventoryRenderHelper;
 import com.shiroha.skinlayers3d.renderer.core.IMMDModel;
+import com.shiroha.skinlayers3d.renderer.core.RenderContext;
 import com.shiroha.skinlayers3d.renderer.core.RenderParams;
 import com.shiroha.skinlayers3d.renderer.model.MMDModelManager;
 import com.shiroha.skinlayers3d.renderer.model.MMDModelManager.ModelWithEntityData;
@@ -45,8 +46,8 @@ public abstract class SkinLayersPlayerRendererMixin extends LivingEntityRenderer
         super(ctx, model, shadowRadius);
     }
 
-    @Inject(method = {"render"}, at = @At("HEAD"), cancellable = true)
-    public void render(AbstractClientPlayer player, float entityYaw, float tickDelta, PoseStack matrixStack, 
+    @Inject(method = "render(Lnet/minecraft/client/player/AbstractClientPlayer;FFLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;I)V", at = @At("HEAD"), cancellable = true)
+    public void onRender(AbstractClientPlayer player, float entityYaw, float tickDelta, PoseStack matrixStack, 
                       MultiBufferSource vertexConsumers, int packedLight, CallbackInfo ci) {
         // 获取玩家选择的模型
         String playerName = player.getName().getString();
@@ -90,7 +91,7 @@ public abstract class SkinLayersPlayerRendererMixin extends LivingEntityRenderer
             // 正常世界渲染
             matrixStack.scale(size[0], size[0], size[0]);
             RenderSystem.setShader(GameRenderer::getRendertypeEntityTranslucentShader);
-            model.Render(player, params.bodyYaw, params.bodyPitch, params.translation, tickDelta, matrixStack, packedLight);
+            model.render(player, params.bodyYaw, params.bodyPitch, params.translation, tickDelta, matrixStack, packedLight, RenderContext.WORLD);
         }
         
         // 渲染手持物品（委托给 ItemRenderHelper）

@@ -1,6 +1,8 @@
 package com.shiroha.skinlayers3d.maid;
 
 import com.shiroha.skinlayers3d.renderer.animation.MMDAnimManager;
+import com.shiroha.skinlayers3d.renderer.core.EntityAnimState;
+import com.shiroha.skinlayers3d.renderer.core.RenderContext;
 import com.shiroha.skinlayers3d.renderer.model.MMDModelManager;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.world.entity.LivingEntity;
@@ -57,7 +59,7 @@ public class MaidMMDRenderer {
             float entityPitch = 0.0f;
             
             // 渲染模型
-            modelData.model.Render(entity, entityYaw, entityPitch, entityTrans, partialTicks, poseStack, packedLight);
+            modelData.model.render(entity, entityYaw, entityPitch, entityTrans, partialTicks, poseStack, packedLight, RenderContext.WORLD);
             
             return true;
         } catch (Exception e) {
@@ -75,33 +77,33 @@ public class MaidMMDRenderer {
         }
         
         MMDModelManager.ModelWithEntityData modelWithData = (MMDModelManager.ModelWithEntityData) modelData;
-        MMDModelManager.EntityData entityData = modelWithData.entityData;
+        EntityAnimState entityData = modelWithData.entityData;
         
         // 简化的动画状态判断（针对女仆）
-        MMDModelManager.EntityData.EntityState targetState;
+        EntityAnimState.State targetState;
         
         if (entity.getHealth() <= 0) {
-            targetState = MMDModelManager.EntityData.EntityState.Die;
+            targetState = EntityAnimState.State.Die;
         } else if (entity.isSleeping()) {
-            targetState = MMDModelManager.EntityData.EntityState.Sleep;
+            targetState = EntityAnimState.State.Sleep;
         } else if (entity.isPassenger()) {
-            targetState = MMDModelManager.EntityData.EntityState.Ride;
+            targetState = EntityAnimState.State.Ride;
         } else if (entity.isSwimming()) {
-            targetState = MMDModelManager.EntityData.EntityState.Swim;
+            targetState = EntityAnimState.State.Swim;
         } else if (entity.onClimbable()) {
-            targetState = MMDModelManager.EntityData.EntityState.OnClimbable;
+            targetState = EntityAnimState.State.OnClimbable;
         } else if (entity.isSprinting()) {
-            targetState = MMDModelManager.EntityData.EntityState.Sprint;
+            targetState = EntityAnimState.State.Sprint;
         } else if (hasMovement(entity)) {
-            targetState = MMDModelManager.EntityData.EntityState.Walk;
+            targetState = EntityAnimState.State.Walk;
         } else {
-            targetState = MMDModelManager.EntityData.EntityState.Idle;
+            targetState = EntityAnimState.State.Idle;
         }
         
         // 只在状态变化时切换动画
         if (entityData.stateLayers[0] != targetState) {
             entityData.stateLayers[0] = targetState;
-            String animName = MMDModelManager.EntityData.stateProperty.get(targetState);
+            String animName = EntityAnimState.getPropertyName(targetState);
             modelWithData.model.ChangeAnim(MMDAnimManager.GetAnimModel(modelWithData.model, animName), 0);
         }
     }

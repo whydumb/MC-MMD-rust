@@ -3,7 +3,9 @@ package com.shiroha.skinlayers3d.renderer.model;
 import com.shiroha.skinlayers3d.NativeFunc;
 import com.shiroha.skinlayers3d.config.ConfigManager;
 import com.shiroha.skinlayers3d.renderer.compat.IrisCompat;
+import com.shiroha.skinlayers3d.renderer.core.EyeTrackingHelper;
 import com.shiroha.skinlayers3d.renderer.core.IMMDModel;
+import com.shiroha.skinlayers3d.renderer.core.RenderContext;
 import com.shiroha.skinlayers3d.renderer.resource.MMDTextureManager;
 import com.shiroha.skinlayers3d.renderer.shader.GpuSkinningShader;
 import com.shiroha.skinlayers3d.renderer.shader.ToonShader;
@@ -58,9 +60,12 @@ public class MMDModelGpuSkinning implements IMMDModel {
     private int boneIndicesBufferObject;
     private int boneWeightsBufferObject;
     
-    // 缓冲区
+    // 缓冲区（allocateDirect 分配，由 GC 回收）
+    @SuppressWarnings("unused") // 保留引用防止 GC 过早回收
     private ByteBuffer posBuffer;
+    @SuppressWarnings("unused") // 保留引用防止 GC 过早回收
     private ByteBuffer norBuffer;
+    @SuppressWarnings("unused") // 保留引用防止 GC 过早回收
     private ByteBuffer uv0Buffer;
     private FloatBuffer boneMatricesBuffer;
     private FloatBuffer modelViewMatBuff;
@@ -68,6 +73,11 @@ public class MMDModelGpuSkinning implements IMMDModel {
     
     // 预分配的骨骼矩阵复制缓冲区（避免每帧 allocateDirect）
     private ByteBuffer boneMatricesByteBuffer;
+    
+    // Morph 数据
+    private int vertexMorphCount = 0;
+    private boolean morphDataUploaded = false;
+    private FloatBuffer morphWeightsBuffer;
     
     private int indexElementSize;
     private int indexType;
@@ -250,31 +260,49 @@ public class MMDModelGpuSkinning implements IMMDModel {
         result.projMatBuff = MemoryUtil.memAllocFloat(16);
         result.initialized = true;
         
-        logger.info("GPU 蒙皮模型创建成功: {} 顶点, {} 骨骼", vertexCount, boneCount);
+        // 初始化 Morph 数据
+        nf.InitGpuMorphData(model);
+        int morphCount = (int) nf.GetVertexMorphCount(model);
+        result.vertexMorphCount = morphCount;
+        if (morphCount > 0) {
+            result.morphWeightsBuffer = MemoryUtil.memAllocFloat(morphCount);
+            logger.info("GPU Morph 初始化: {} 个顶点 Morph", morphCount);
+        }
+        
+        // 启用自动眨眼
+        nf.SetAutoBlinkEnabled(model, true);
+        
+        logger.info("GPU 蒸皮模型创建成功: {} 顶点, {} 骨骼", vertexCount, boneCount);
         return result;
     }
     
     @Override
-    public void Render(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack mat, int packedLight) {
+    public void render(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack mat, int packedLight, RenderContext context) {
         if (!initialized) return;
         
         if (entityIn instanceof LivingEntity && tickDelta != 1.0f) {
-            RenderLivingEntity((LivingEntity) entityIn, entityYaw, entityPitch, entityTrans, tickDelta, mat, packedLight);
+            renderLivingEntity((LivingEntity) entityIn, entityYaw, entityPitch, entityTrans, tickDelta, mat, packedLight, context);
             return;
         }
         Update();
         RenderModel(entityIn, entityYaw, entityPitch, entityTrans, mat);
     }
     
-    private void RenderLivingEntity(LivingEntity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack mat, int packedLight) {
-        float headAngleX = entityIn.getXRot();
+    private void renderLivingEntity(LivingEntity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack mat, int packedLight, RenderContext context) {
+        // 使用公共工具类计算头部角度
+        float headAngleX = Mth.clamp(entityIn.getXRot(), -50.0f, 50.0f);
         float headAngleY = (entityYaw - Mth.lerp(tickDelta, entityIn.yHeadRotO, entityIn.yHeadRot)) % 360.0f;
-        headAngleX = Mth.clamp(headAngleX, -50.0f, 50.0f);
         if (headAngleY < -180.0f) headAngleY += 360.0f;
         else if (headAngleY > 180.0f) headAngleY -= 360.0f;
         headAngleY = Mth.clamp(headAngleY, -80.0f, 80.0f);
         
-        nf.SetHeadAngle(model, headAngleX * ((float) Math.PI / 180F), headAngleY * ((float) Math.PI / 180F), 0.0f, true);
+        float pitchRad = headAngleX * ((float) Math.PI / 180F);
+        float yawRad = context.isInventoryScene() ? -headAngleY * ((float) Math.PI / 180F) : headAngleY * ((float) Math.PI / 180F);
+        nf.SetHeadAngle(model, pitchRad, yawRad, 0.0f, context.isWorldScene());
+        
+        // 使用公共工具类更新眼球追踪
+        EyeTrackingHelper.updateEyeTracking(nf, model, entityIn, entityYaw, tickDelta);
+        
         Update();
         RenderModel(entityIn, entityYaw, entityPitch, entityTrans, mat);
     }
@@ -297,14 +325,16 @@ public class MMDModelGpuSkinning implements IMMDModel {
     private void RenderModel(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, PoseStack deliverStack) {
         Minecraft MCinstance = Minecraft.getInstance();
         
-        // Iris 兼容：开始自定义渲染前保存状态
-        IrisCompat.beginCustomRendering();
+        // Iris 兼容：开始 GPU 蒙皮渲染
+        // 如果 Iris 激活，会绑定 Iris 的 G-buffer framebuffer 并设置正确的渲染阶段
+        IrisCompat.beginGpuSkinningWithIris();
         
         try {
             renderModelInternal(entityIn, entityYaw, entityPitch, entityTrans, deliverStack, MCinstance);
         } finally {
-            // Iris 兼容：GPU 蒙皮专用状态恢复（解绑 SSBO、着色器等）
-            IrisCompat.endGpuSkinningRendering();
+            // Iris 兼容：结束 GPU 蒙皮渲染
+            // 恢复 framebuffer、着色器程序、SSBO 绑定等状态
+            IrisCompat.endGpuSkinningWithIris();
         }
     }
     
@@ -439,6 +469,15 @@ public class MMDModelGpuSkinning implements IMMDModel {
         gpuShader.setLightIntensity(lightIntensity);
         gpuShader.uploadBoneMatrices(boneMatricesBuffer, boneCount);
         
+        // Morph 支持
+        if (vertexMorphCount > 0) {
+            uploadMorphData();
+            gpuShader.bindMorphSSBOs();
+            gpuShader.setMorphParams(vertexMorphCount, vertexCount);
+        } else {
+            gpuShader.setMorphParams(0, 0);
+        }
+        
         drawAllSubMeshes(MCinstance);
     }
     
@@ -511,6 +550,16 @@ public class MMDModelGpuSkinning implements IMMDModel {
         // ===== 第二遍：主体（Toon 着色） =====
         toonShader.useMain();
         toonShader.uploadBoneMatrices(boneMatricesBuffer, boneCount);
+        
+        // Morph 支持
+        // 注意：SSBO 绑定点是全局的，gpuShader 的 SSBO 绑定在 toonShader 中也有效
+        if (vertexMorphCount > 0) {
+            uploadMorphData();
+            gpuShader.bindMorphSSBOs(); // 绑定点 1 和 2，ToonShader 共用
+            toonShader.setMorphParams(vertexMorphCount, vertexCount);
+        } else {
+            toonShader.setMorphParams(0, 0);
+        }
         
         int posLoc = toonShader.getPositionLocation();
         int norLoc = toonShader.getNormalLocation();
@@ -619,6 +668,36 @@ public class MMDModelGpuSkinning implements IMMDModel {
         gpuShader.uploadBoneMatrices(boneMatricesBuffer, copiedBones);
     }
     
+    /**
+     * 上传 Morph 数据到 GPU
+     */
+    private void uploadMorphData() {
+        if (vertexMorphCount <= 0) return;
+        
+        // 首次上传偏移数据（静态）
+        if (!morphDataUploaded) {
+            long offsetsSize = nf.GetGpuMorphOffsetsSize(model);
+            if (offsetsSize > 0) {
+                ByteBuffer offsetsBuffer = ByteBuffer.allocateDirect((int) offsetsSize);
+                offsetsBuffer.order(ByteOrder.LITTLE_ENDIAN);
+                nf.CopyGpuMorphOffsetsToBuffer(model, offsetsBuffer);
+                gpuShader.uploadMorphOffsets(offsetsBuffer, vertexMorphCount, vertexCount);
+                morphDataUploaded = true;
+            }
+        }
+        
+        // 每帧更新权重
+        if (morphWeightsBuffer != null) {
+            ByteBuffer weightsByteBuffer = ByteBuffer.allocateDirect(vertexMorphCount * 4);
+            weightsByteBuffer.order(ByteOrder.LITTLE_ENDIAN);
+            nf.CopyGpuMorphWeightsToBuffer(model, weightsByteBuffer);
+            morphWeightsBuffer.clear();
+            morphWeightsBuffer.put(weightsByteBuffer.asFloatBuffer());
+            morphWeightsBuffer.flip();
+            gpuShader.updateMorphWeights(morphWeightsBuffer);
+        }
+    }
+    
     @Override
     public void ChangeAnim(long anim, long layer) {
         nf.ChangeModelAnim(model, anim, layer);
@@ -639,32 +718,38 @@ public class MMDModelGpuSkinning implements IMMDModel {
         return modelDir;
     }
     
-    public static void Delete(MMDModelGpuSkinning model) {
-        if (model == null) return;
-        
-        nf.DeleteModel(model.model);
+    @Override
+    public void dispose() {
+        nf.DeleteModel(model);
         
         // 释放 OpenGL 资源
-        GL46C.glDeleteVertexArrays(model.vertexArrayObject);
-        GL46C.glDeleteBuffers(model.indexBufferObject);
-        GL46C.glDeleteBuffers(model.positionBufferObject);
-        GL46C.glDeleteBuffers(model.normalBufferObject);
-        GL46C.glDeleteBuffers(model.uv0BufferObject);
-        GL46C.glDeleteBuffers(model.boneIndicesBufferObject);
-        GL46C.glDeleteBuffers(model.boneWeightsBufferObject);
+        GL46C.glDeleteVertexArrays(vertexArrayObject);
+        GL46C.glDeleteBuffers(indexBufferObject);
+        GL46C.glDeleteBuffers(positionBufferObject);
+        GL46C.glDeleteBuffers(normalBufferObject);
+        GL46C.glDeleteBuffers(uv0BufferObject);
+        GL46C.glDeleteBuffers(boneIndicesBufferObject);
+        GL46C.glDeleteBuffers(boneWeightsBufferObject);
         
         // 释放 MemoryUtil 分配的缓冲区
-        if (model.boneMatricesBuffer != null) MemoryUtil.memFree(model.boneMatricesBuffer);
-        if (model.modelViewMatBuff != null) MemoryUtil.memFree(model.modelViewMatBuff);
-        if (model.projMatBuff != null) MemoryUtil.memFree(model.projMatBuff);
+        if (boneMatricesBuffer != null) MemoryUtil.memFree(boneMatricesBuffer);
+        if (modelViewMatBuff != null) MemoryUtil.memFree(modelViewMatBuff);
+        if (projMatBuff != null) MemoryUtil.memFree(projMatBuff);
         
         // 注意：posBuffer, norBuffer, uv0Buffer, boneMatricesByteBuffer 是通过
         // ByteBuffer.allocateDirect() 分配的，会由 GC 自动回收
         // boneIndicesBuffer, boneWeightsBuffer 是 ByteBuffer 的视图，不需要单独释放
     }
     
+    /** @deprecated 使用 {@link #dispose()} 替代 */
+    @Deprecated
+    public static void Delete(MMDModelGpuSkinning model) {
+        if (model != null) model.dispose();
+    }
+    
     private static class Material {
         int tex = 0;
+        @SuppressWarnings("unused") // 预留用于透明度渲染
         boolean hasAlpha = false;
     }
 }

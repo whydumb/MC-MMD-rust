@@ -76,13 +76,13 @@ impl Default for PhysicsConfig {
             // MMD 标准约 -98.0，但游戏中通常用更小的值
             // 值越小（绝对值越大）→ 头发下垂越快、越重
             // 值越大（绝对值越小）→ 头发飘起来、更轻盈
-            gravity_y: -15.0,
+            gravity_y: -9.8,
 
             // ====== 模拟参数 ======
             // 物理模拟的帧率（每秒计算多少次物理）
             // 越高 → 模拟越精确、越稳定，但 CPU 消耗越大
             // 建议范围: 30~120，60 是平衡点
-            physics_fps: 60.0,
+            physics_fps: 30.0,
             
             // 每帧最多分成几个子步骤
             // 当游戏帧率低于 physics_fps 时会分步计算
@@ -108,7 +108,7 @@ impl Default for PhysicsConfig {
             // 这个值会乘以 PMX 模型里设置的原始阻尼
             // 越大 → 头发移动越慢、停止越快、更"稠"
             // 越小 → 头发移动越自由、惯性越大
-            linear_damping_scale: 1.5,
+            linear_damping_scale: 3.0,
             
             // 角速度阻尼 = 旋转时的空气阻力
             // 越大 → 头发旋转越慢、更稳定
@@ -148,7 +148,7 @@ impl Default for PhysicsConfig {
             // ====== 速度限制（防止爆炸）======
             // 最大线速度（米/秒）
             // 超过这个速度会被强制限制，防止物理爆炸
-            max_linear_velocity: 100.0,
+            max_linear_velocity: 30.0,
             
             // 最大角速度（弧度/秒）
             // 同上

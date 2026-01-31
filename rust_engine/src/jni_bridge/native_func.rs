@@ -758,6 +758,122 @@ pub extern "system" fn Java_com_shiroha_skinlayers3d_NativeFunc_SetHeadAngle(
     }
 }
 
+/// 设置眼球追踪角度（眼睛看向摄像头）
+/// eye_x: 上下看的角度（弧度，正值向上）
+/// eye_y: 左右看的角度（弧度，正值向左）
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_skinlayers3d_NativeFunc_SetEyeAngle(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    eye_x: jfloat,
+    eye_y: jfloat,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.set_eye_angle(eye_x, eye_y);
+    }
+}
+
+/// 设置眼球最大转动角度
+/// max_angle: 最大角度（弧度），默认 0.35（约 20 度）
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_skinlayers3d_NativeFunc_SetEyeMaxAngle(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    max_angle: jfloat,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.set_eye_max_angle(max_angle);
+    }
+}
+
+/// 启用/禁用眼球追踪
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_skinlayers3d_NativeFunc_SetEyeTrackingEnabled(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    enabled: jboolean,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.set_eye_tracking_enabled(enabled != 0);
+    }
+}
+
+/// 获取眼球追踪是否启用
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_skinlayers3d_NativeFunc_IsEyeTrackingEnabled(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jboolean {
+    let models = MODELS.read().unwrap();
+    models
+        .get(&model)
+        .map(|m| {
+            let model = m.lock().unwrap();
+            if model.is_eye_tracking_enabled() { 1u8 } else { 0u8 }
+        })
+        .unwrap_or(0u8)
+}
+
+/// 启用/禁用自动眨眼
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_skinlayers3d_NativeFunc_SetAutoBlinkEnabled(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    enabled: jboolean,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.set_auto_blink_enabled(enabled != 0);
+    }
+}
+
+/// 获取自动眨眼是否启用
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_skinlayers3d_NativeFunc_IsAutoBlinkEnabled(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jboolean {
+    let models = MODELS.read().unwrap();
+    models
+        .get(&model)
+        .map(|m| {
+            let model = m.lock().unwrap();
+            if model.is_auto_blink_enabled() { 1u8 } else { 0u8 }
+        })
+        .unwrap_or(0u8)
+}
+
+/// 设置眨眼参数
+/// interval: 眨眼间隔（秒），默认 4.0
+/// duration: 眨眼持续时间（秒），默认 0.15
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_skinlayers3d_NativeFunc_SetBlinkParams(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    interval: jfloat,
+    duration: jfloat,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.set_blink_params(interval, duration);
+    }
+}
+
 // ============================================================================
 // 动画层控制函数（新增）
 // ============================================================================
@@ -1822,4 +1938,181 @@ pub extern "system" fn Java_com_shiroha_skinlayers3d_NativeFunc_IsGpuMorphInitia
         }
     }
     0
+}
+
+// ============================================================================
+// VPD 表情预设相关函数
+// ============================================================================
+
+/// 加载 VPD 表情预设并应用到模型
+/// 
+/// VPD 文件可以同时包含骨骼姿势（Bone）和表情权重（Morph）数据，此函数会同时应用两者。
+/// 
+/// 返回值编码: 高16位为骨骼匹配数，低16位为 Morph 匹配数
+/// - 成功: (bone_count << 16) | morph_count
+/// - -1: 文件加载失败
+/// - -2: 模型不存在
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_skinlayers3d_NativeFunc_ApplyVpdMorph(
+    mut env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    filename: JString,
+) -> jint {
+    use crate::animation::VpdFile;
+    
+    let filename_str: String = match env.get_string(&filename) {
+        Ok(s) => s.into(),
+        Err(_) => return -1,
+    };
+    
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        
+        match VpdFile::load(&filename_str) {
+            Ok(vpd) => {
+                let mut morph_count = 0i32;
+                let mut bone_count = 0i32;
+                
+                // 1. 应用 Morph 表情
+                for morph_data in &vpd.morphs {
+                    if let Some(idx) = model.morph_manager.find_morph_by_name(&morph_data.name) {
+                        model.morph_manager.set_morph_weight(idx, morph_data.weight);
+                        morph_count += 1;
+                    }
+                }
+                
+                // 2. 设置 VPD 骨骼姿势覆盖（会在每帧动画评估后自动应用）
+                model.clear_vpd_bone_overrides();
+                for bone_data in &vpd.bones {
+                    if let Some(idx) = model.bone_manager.find_bone_by_name(&bone_data.name) {
+                        model.set_vpd_bone_override(idx, bone_data.translation, bone_data.rotation);
+                        bone_count += 1;
+                    }
+                }
+                
+                // 同步到 GPU 缓冲区（用于 GPU 蒙皮模式）
+                model.sync_gpu_morph_weights();
+                
+                // 返回编码值: 高16位骨骼数，低16位 Morph 数
+                return ((bone_count & 0xFFFF) << 16) | (morph_count & 0xFFFF);
+            }
+            Err(_) => {
+                return -1;
+            }
+        }
+    }
+    -2
+}
+
+/// 重置所有 Morph 权重和 VPD 骨骼姿势覆盖
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_skinlayers3d_NativeFunc_ResetAllMorphs(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.morph_manager.reset_all_weights();
+        model.clear_vpd_bone_overrides();
+        model.sync_gpu_morph_weights();
+    }
+}
+
+/// 设置单个 Morph 权重（通过名称）
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_skinlayers3d_NativeFunc_SetMorphWeightByName(
+    mut env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    morph_name: JString,
+    weight: jfloat,
+) -> jboolean {
+    let name_str: String = match env.get_string(&morph_name) {
+        Ok(s) => s.into(),
+        Err(_) => return 0,
+    };
+    
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        if let Some(idx) = model.morph_manager.find_morph_by_name(&name_str) {
+            model.morph_manager.set_morph_weight(idx, weight);
+            model.sync_gpu_morph_weights();
+            return 1;
+        }
+    }
+    0
+}
+
+/// 获取 Morph 数量
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_skinlayers3d_NativeFunc_GetMorphCount(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+) -> jlong {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        return model.morph_manager.morph_count() as jlong;
+    }
+    0
+}
+
+/// 获取 Morph 名称（通过索引）
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_skinlayers3d_NativeFunc_GetMorphName(
+    env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    index: jint,
+) -> jstring {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        if let Some(morph) = model.morph_manager.get_morph(index as usize) {
+            if let Ok(s) = env.new_string(&morph.name) {
+                return s.into_raw();
+            }
+        }
+    }
+    ptr::null_mut()
+}
+
+/// 获取 Morph 权重（通过索引）
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_skinlayers3d_NativeFunc_GetMorphWeight(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    index: jint,
+) -> jfloat {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let model = model_arc.lock().unwrap();
+        if let Some(morph) = model.morph_manager.get_morph(index as usize) {
+            return morph.weight;
+        }
+    }
+    0.0
+}
+
+/// 设置 Morph 权重（通过索引）
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_skinlayers3d_NativeFunc_SetMorphWeight(
+    _env: JNIEnv,
+    _class: JClass,
+    model: jlong,
+    index: jint,
+    weight: jfloat,
+) {
+    let models = MODELS.read().unwrap();
+    if let Some(model_arc) = models.get(&model) {
+        let mut model = model_arc.lock().unwrap();
+        model.morph_manager.set_morph_weight(index as usize, weight);
+    }
 }

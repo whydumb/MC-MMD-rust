@@ -1,12 +1,14 @@
-//! VMD 动画系统
+//! VMD/VPD 动画系统
 
 mod vmd_file;
+mod vpd_file;
 mod vmd_animation;
 mod keyframe;
 mod bezier;
 mod animation_layer;
 
 pub use vmd_file::VmdFile;
+pub use vpd_file::{VpdFile, VpdBone, VpdMorph};
 pub use vmd_animation::VmdAnimation;
 pub use keyframe::{BoneKeyframe, MorphKeyframe, CameraKeyframe};
 pub use bezier::BezierCurve;

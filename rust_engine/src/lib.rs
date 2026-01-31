@@ -42,6 +42,9 @@ pub enum MmdError {
 
     #[error("Texture error: {0}")]
     Texture(String),
+
+    #[error("VPD parse error: {0}")]
+    VpdParse(String),
 }
 
 pub type Result<T> = std::result::Result<T, MmdError>;

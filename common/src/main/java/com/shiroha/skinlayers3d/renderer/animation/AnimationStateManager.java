@@ -1,6 +1,6 @@
 package com.shiroha.skinlayers3d.renderer.animation;
 
-import com.shiroha.skinlayers3d.renderer.model.MMDModelManager.EntityData;
+import com.shiroha.skinlayers3d.renderer.core.EntityAnimState;
 import com.shiroha.skinlayers3d.renderer.model.MMDModelManager.ModelWithEntityData;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.world.InteractionHand;
@@ -49,59 +49,60 @@ public class AnimationStateManager {
     
     private static void updateLayer0Animation(AbstractClientPlayer player, ModelWithEntityData model) {
         if (player.getHealth() == 0.0f) {
-            changeAnimationOnce(model, EntityData.EntityState.Die, 0);
+            changeAnimationOnce(model, EntityAnimState.State.Die, 0);
         } else if (player.isFallFlying()) {
-            changeAnimationOnce(model, EntityData.EntityState.ElytraFly, 0);
+            changeAnimationOnce(model, EntityAnimState.State.ElytraFly, 0);
         } else if (player.isSleeping()) {
-            changeAnimationOnce(model, EntityData.EntityState.Sleep, 0);
+            changeAnimationOnce(model, EntityAnimState.State.Sleep, 0);
         } else if (player.isPassenger()) {
             updateRidingAnimation(player, model);
         } else if (player.isSwimming()) {
-            changeAnimationOnce(model, EntityData.EntityState.Swim, 0);
+            changeAnimationOnce(model, EntityAnimState.State.Swim, 0);
         } else if (player.onClimbable()) {
             updateClimbingAnimation(player, model);
         } else if (player.isSprinting() && !player.isShiftKeyDown()) {
-            changeAnimationOnce(model, EntityData.EntityState.Sprint, 0);
+            changeAnimationOnce(model, EntityAnimState.State.Sprint, 0);
         } else if (player.isVisuallyCrawling()) {
             updateCrawlingAnimation(player, model);
         } else if (hasMovement(player)) {
-            changeAnimationOnce(model, EntityData.EntityState.Walk, 0);
+            changeAnimationOnce(model, EntityAnimState.State.Walk, 0);
         } else {
-            changeAnimationOnce(model, EntityData.EntityState.Idle, 0);
+            changeAnimationOnce(model, EntityAnimState.State.Idle, 0);
         }
     }
     
     private static void updateRidingAnimation(AbstractClientPlayer player, ModelWithEntityData model) {
-        if (player.getVehicle().getType() == EntityType.HORSE && hasMovement(player)) {
-            changeAnimationOnce(model, EntityData.EntityState.OnHorse, 0);
+        var vehicle = player.getVehicle();
+        if (vehicle != null && vehicle.getType() == EntityType.HORSE && hasMovement(player)) {
+            changeAnimationOnce(model, EntityAnimState.State.OnHorse, 0);
         } else {
-            changeAnimationOnce(model, EntityData.EntityState.Ride, 0);
+            changeAnimationOnce(model, EntityAnimState.State.Ride, 0);
         }
     }
     
     private static void updateClimbingAnimation(AbstractClientPlayer player, ModelWithEntityData model) {
         double verticalMovement = player.getY() - player.yo;
         if (verticalMovement > 0) {
-            changeAnimationOnce(model, EntityData.EntityState.OnClimbableUp, 0);
+            changeAnimationOnce(model, EntityAnimState.State.OnClimbableUp, 0);
         } else if (verticalMovement < 0) {
-            changeAnimationOnce(model, EntityData.EntityState.OnClimbableDown, 0);
+            changeAnimationOnce(model, EntityAnimState.State.OnClimbableDown, 0);
         } else {
-            changeAnimationOnce(model, EntityData.EntityState.OnClimbable, 0);
+            changeAnimationOnce(model, EntityAnimState.State.OnClimbable, 0);
         }
     }
     
     private static void updateCrawlingAnimation(AbstractClientPlayer player, ModelWithEntityData model) {
         if (hasMovement(player)) {
-            changeAnimationOnce(model, EntityData.EntityState.Crawl, 0);
+            changeAnimationOnce(model, EntityAnimState.State.Crawl, 0);
         } else {
-            changeAnimationOnce(model, EntityData.EntityState.LieDown, 0);
+            changeAnimationOnce(model, EntityAnimState.State.LieDown, 0);
         }
     }
     
     private static void updateLayer1Animation(AbstractClientPlayer player, ModelWithEntityData model) {
         if (!player.isUsingItem() && !player.swinging || player.isSleeping()) {
-            if (model.entityData.stateLayers[1] != EntityData.EntityState.Idle) {
-                model.entityData.stateLayers[1] = EntityData.EntityState.Idle;
+            if (model.entityData.stateLayers[1] != EntityAnimState.State.Idle) {
+                model.entityData.stateLayers[1] = EntityAnimState.State.Idle;
                 model.model.ChangeAnim(0, 1);
             }
         } else {
@@ -112,39 +113,39 @@ public class AnimationStateManager {
     private static void updateHandAnimation(AbstractClientPlayer player, ModelWithEntityData model) {
         if (player.getUsedItemHand() == InteractionHand.MAIN_HAND && player.isUsingItem()) {
             String itemId = getItemId(player, InteractionHand.MAIN_HAND);
-            applyCustomItemAnimation(model, EntityData.EntityState.ItemRight, itemId, "Right", "using", 1);
+            applyCustomItemAnimation(model, EntityAnimState.State.ItemRight, itemId, "Right", "using", 1);
         } else if (player.swingingArm == InteractionHand.MAIN_HAND && player.swinging) {
             String itemId = getItemId(player, InteractionHand.MAIN_HAND);
-            applyCustomItemAnimation(model, EntityData.EntityState.SwingRight, itemId, "Right", "swinging", 1);
+            applyCustomItemAnimation(model, EntityAnimState.State.SwingRight, itemId, "Right", "swinging", 1);
         } else if (player.getUsedItemHand() == InteractionHand.OFF_HAND && player.isUsingItem()) {
             String itemId = getItemId(player, InteractionHand.OFF_HAND);
-            applyCustomItemAnimation(model, EntityData.EntityState.ItemLeft, itemId, "Left", "using", 1);
+            applyCustomItemAnimation(model, EntityAnimState.State.ItemLeft, itemId, "Left", "using", 1);
         } else if (player.swingingArm == InteractionHand.OFF_HAND && player.swinging) {
             String itemId = getItemId(player, InteractionHand.OFF_HAND);
-            applyCustomItemAnimation(model, EntityData.EntityState.SwingLeft, itemId, "Left", "swinging", 1);
+            applyCustomItemAnimation(model, EntityAnimState.State.SwingLeft, itemId, "Left", "swinging", 1);
         }
     }
     
     private static void updateLayer2Animation(AbstractClientPlayer player, ModelWithEntityData model) {
         if (player.isShiftKeyDown() && !player.isVisuallyCrawling()) {
-            changeAnimationOnce(model, EntityData.EntityState.Sneak, 2);
+            changeAnimationOnce(model, EntityAnimState.State.Sneak, 2);
         } else {
-            if (model.entityData.stateLayers[2] != EntityData.EntityState.Idle) {
-                model.entityData.stateLayers[2] = EntityData.EntityState.Idle;
+            if (model.entityData.stateLayers[2] != EntityAnimState.State.Idle) {
+                model.entityData.stateLayers[2] = EntityAnimState.State.Idle;
                 model.model.ChangeAnim(0, 2);
             }
         }
     }
     
-    private static void changeAnimationOnce(ModelWithEntityData model, EntityData.EntityState targetState, int layer) {
-        String property = EntityData.stateProperty.get(targetState);
+    private static void changeAnimationOnce(ModelWithEntityData model, EntityAnimState.State targetState, int layer) {
+        String property = EntityAnimState.getPropertyName(targetState);
         if (model.entityData.stateLayers[layer] != targetState) {
             model.entityData.stateLayers[layer] = targetState;
             model.model.ChangeAnim(MMDAnimManager.GetAnimModel(model.model, property), layer);
         }
     }
     
-    private static void applyCustomItemAnimation(ModelWithEntityData model, EntityData.EntityState targetState, 
+    private static void applyCustomItemAnimation(ModelWithEntityData model, EntityAnimState.State targetState, 
                                                   String itemName, String activeHand, String handState, int layer) {
         long anim = MMDAnimManager.GetAnimModel(model.model, 
             String.format("itemActive_%s_%s_%s", itemName, activeHand, handState));
@@ -157,10 +158,10 @@ public class AnimationStateManager {
             return;
         }
         
-        if (targetState == EntityData.EntityState.ItemRight || targetState == EntityData.EntityState.SwingRight) {
-            changeAnimationOnce(model, EntityData.EntityState.SwingRight, layer);
-        } else if (targetState == EntityData.EntityState.ItemLeft || targetState == EntityData.EntityState.SwingLeft) {
-            changeAnimationOnce(model, EntityData.EntityState.SwingLeft, layer);
+        if (targetState == EntityAnimState.State.ItemRight || targetState == EntityAnimState.State.SwingRight) {
+            changeAnimationOnce(model, EntityAnimState.State.SwingRight, layer);
+        } else if (targetState == EntityAnimState.State.ItemLeft || targetState == EntityAnimState.State.SwingLeft) {
+            changeAnimationOnce(model, EntityAnimState.State.SwingLeft, layer);
         }
     }
     

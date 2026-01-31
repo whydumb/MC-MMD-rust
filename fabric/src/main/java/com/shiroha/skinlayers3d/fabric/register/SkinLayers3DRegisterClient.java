@@ -8,6 +8,7 @@ import com.shiroha.skinlayers3d.renderer.render.SkinLayersRenderFactory;
 import com.shiroha.skinlayers3d.ui.ActionWheelNetworkHandler;
 import com.shiroha.skinlayers3d.ui.ConfigWheelScreen;
 import com.shiroha.skinlayers3d.ui.MaidConfigWheelScreen;
+import com.shiroha.skinlayers3d.ui.MorphWheelNetworkHandler;
 import com.mojang.blaze3d.platform.InputConstants;
 
 import java.io.File;
@@ -67,6 +68,16 @@ public class SkinLayers3DRegisterClient {
                 // 使用字符串传输动画ID，支持中文文件名
                 logger.info("发送动作到服务器: " + animId);
                 SkinLayers3DNetworkPack.sendToServer(1, player.getUUID(), animId);
+            }
+        });
+        
+        // 注册表情轮盘网络发送器
+        MorphWheelNetworkHandler.setNetworkSender(morphName -> {
+            LocalPlayer player = MCinstance.player;
+            if (player != null) {
+                logger.info("发送表情到服务器: " + morphName);
+                // 使用 opCode 6 表示表情变更
+                SkinLayers3DNetworkPack.sendToServer(6, player.getUUID(), morphName);
             }
         });
         

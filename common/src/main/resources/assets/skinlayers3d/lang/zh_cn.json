@@ -8,6 +8,7 @@
   "gui.skinlayers3d.config.model_switch": "模型切换",
   "gui.skinlayers3d.config.action_select": "动作选择",
   "gui.skinlayers3d.config.material_control": "材质控制",
+  "gui.skinlayers3d.config.morph_select": "表情选择",
   "gui.skinlayers3d.config.mod_settings": "模组设置",
   "gui.skinlayers3d.maid.model_switch": "模型切换",
   "gui.skinlayers3d.maid.action_select": "动作选择",
@@ -61,5 +62,10 @@
   "gui.skinlayers3d.model_selector": "模型选择",
   "gui.skinlayers3d.maid_model_selector": "女仆 MMD 模型选择",
   "gui.skinlayers3d.action_config": "动作轮盘配置",
-  "gui.skinlayers3d.rescan": "重新扫描"
+  "gui.skinlayers3d.rescan": "重新扫描",
+  
+  "key.skinlayers3d.morph_wheel": "表情轮盘",
+  "gui.skinlayers3d.morph_wheel": "表情选择轮盘",
+  "gui.skinlayers3d.morph_config": "表情轮盘配置",
+  "gui.skinlayers3d.reset_morph": "重置表情"
 }

@@ -26,20 +26,26 @@ public class NativeFunc {
             put(runtimeUrlRes.android_arch64_libc, "https://github.com.cnpmjs.org/asuka-mio/KAIMyEntitySaba/releases/download/crossplatform/libc++_shared.so");
         }
     };
-    static NativeFunc inst;
+    private static volatile NativeFunc inst;
+    private static final Object lock = new Object();
     static final String libraryVersion = "Rust-20260125";
 
     public static NativeFunc GetInst() {
         if (inst == null) {
-            inst = new NativeFunc();
-            inst.Init();
-            if(!inst.GetVersion().equals(libraryVersion)){
-                logger.warn("Incompatible Version dll. / loaded ver -> " + inst.GetVersion() + " / required ver -> "+ libraryVersion);
-                logger.warn("Please restart or download dll.");
-                try{
-                    Files.move(Paths.get(gameDirectory, "mmd_engine.dll"),Paths.get(gameDirectory, "mmd_engine.dll.old"));
-                }catch(Exception e){
-                    logger.info(e);
+            synchronized (lock) {
+                if (inst == null) {
+                    NativeFunc newInst = new NativeFunc();
+                    newInst.Init();
+                    if(!newInst.GetVersion().equals(libraryVersion)){
+                        logger.warn("Incompatible Version dll. / loaded ver -> " + newInst.GetVersion() + " / required ver -> "+ libraryVersion);
+                        logger.warn("Please restart or download dll.");
+                        try{
+                            Files.move(Paths.get(gameDirectory, "mmd_engine.dll"),Paths.get(gameDirectory, "mmd_engine.dll.old"));
+                        }catch(Exception e){
+                            logger.info(e);
+                        }
+                    }
+                    inst = newInst;
                 }
             }
         }
@@ -216,6 +222,61 @@ public class NativeFunc {
     public native void DeleteAnimation(long anim);
 
     public native void SetHeadAngle(long model, float x, float y, float z, boolean flag);
+
+    // ========== 眼球追踪相关 ==========
+    
+    /**
+     * 设置眼球追踪角度（眼睛看向摄像头）
+     * @param model 模型句柄
+     * @param eyeX 上下看的角度（弧度，正值向上）
+     * @param eyeY 左右看的角度（弧度，正值向左）
+     */
+    public native void SetEyeAngle(long model, float eyeX, float eyeY);
+    
+    /**
+     * 设置眼球最大转动角度
+     * @param model 模型句柄
+     * @param maxAngle 最大角度（弧度），默认 0.35（约 20 度）
+     */
+    public native void SetEyeMaxAngle(long model, float maxAngle);
+    
+    /**
+     * 启用/禁用眼球追踪
+     * @param model 模型句柄
+     * @param enabled 是否启用
+     */
+    public native void SetEyeTrackingEnabled(long model, boolean enabled);
+    
+    /**
+     * 获取眼球追踪是否启用
+     * @param model 模型句柄
+     * @return 是否启用
+     */
+    public native boolean IsEyeTrackingEnabled(long model);
+
+    // ========== 自动眨眼相关 ==========
+    
+    /**
+     * 启用/禁用自动眨眼
+     * @param model 模型句柄
+     * @param enabled 是否启用
+     */
+    public native void SetAutoBlinkEnabled(long model, boolean enabled);
+    
+    /**
+     * 获取自动眨眼是否启用
+     * @param model 模型句柄
+     * @return 是否启用
+     */
+    public native boolean IsAutoBlinkEnabled(long model);
+    
+    /**
+     * 设置眨眼参数
+     * @param model 模型句柄
+     * @param interval 眨眼间隔（秒），默认 4.0
+     * @param duration 眨眼持续时间（秒），默认 0.15
+     */
+    public native void SetBlinkParams(long model, float interval, float duration);
 
     // ========== 物理系统相关 ==========
     
@@ -482,6 +543,67 @@ public class NativeFunc {
      * @return 是否已初始化
      */
     public native boolean IsGpuMorphInitialized(long model);
+    
+    // ========== VPD 表情预设相关 ==========
+    
+    /**
+     * 应用 VPD 表情/姿势预设到模型
+     * 
+     * VPD 文件可以同时包含骨骼姿势（Bone）和表情权重（Morph）数据，此函数会同时应用两者。
+     * 
+     * @param model 模型句柄
+     * @param filename VPD 文件路径
+     * @return 编码值: 高16位为骨骼匹配数，低16位为 Morph 匹配数
+     *         解码方式: boneCount = (result >> 16) & 0xFFFF; morphCount = result & 0xFFFF;
+     *         -1 表示加载失败，-2 表示模型不存在
+     */
+    public native int ApplyVpdMorph(long model, String filename);
+    
+    /**
+     * 重置所有 Morph 权重为 0
+     * @param model 模型句柄
+     */
+    public native void ResetAllMorphs(long model);
+    
+    /**
+     * 通过名称设置单个 Morph 权重
+     * @param model 模型句柄
+     * @param morphName Morph 名称
+     * @param weight 权重值 (0.0-1.0)
+     * @return 是否成功
+     */
+    public native boolean SetMorphWeightByName(long model, String morphName, float weight);
+    
+    /**
+     * 获取 Morph 数量
+     * @param model 模型句柄
+     * @return Morph 数量
+     */
+    public native long GetMorphCount(long model);
+    
+    /**
+     * 获取 Morph 名称（通过索引）
+     * @param model 模型句柄
+     * @param index Morph 索引
+     * @return Morph 名称
+     */
+    public native String GetMorphName(long model, int index);
+    
+    /**
+     * 获取 Morph 权重（通过索引）
+     * @param model 模型句柄
+     * @param index Morph 索引
+     * @return 权重值
+     */
+    public native float GetMorphWeight(long model, int index);
+    
+    /**
+     * 设置 Morph 权重（通过索引）
+     * @param model 模型句柄
+     * @param index Morph 索引
+     * @param weight 权重值 (0.0-1.0)
+     */
+    public native void SetMorphWeight(long model, int index, float weight);
 
     enum runtimeUrlRes {
         windows,android_arch64, android_arch64_libc

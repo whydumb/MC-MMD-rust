@@ -105,7 +105,6 @@ public class MaidMMDModelManager {
         // 检查是否已加载
         MMDModelManager.Model model = loadedModels.get(maidUUID);
         if (model != null) {
-            model.updateAccessTime();
             return model;
         }
         

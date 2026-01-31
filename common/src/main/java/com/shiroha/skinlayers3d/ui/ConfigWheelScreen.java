@@ -21,6 +21,7 @@ import java.util.function.Supplier;
  * 提供模型切换/动作选择/材质控制/模组设置四个入口
  */
 public class ConfigWheelScreen extends Screen {
+    @SuppressWarnings("unused") // 预留用于调试
     private static final Logger logger = LogManager.getLogger();
     
     // 轮盘参数
@@ -59,13 +60,16 @@ public class ConfigWheelScreen extends Screen {
     }
     
     private void initConfigSlots() {
-        // 四个配置入口
+        // 五个配置入口
         configSlots.add(new ConfigSlot("model", 
             Component.translatable("gui.skinlayers3d.config.model_switch").getString(),
             "🎭", this::openModelSelector));
         configSlots.add(new ConfigSlot("action", 
             Component.translatable("gui.skinlayers3d.config.action_select").getString(),
             "🎬", this::openActionWheel));
+        configSlots.add(new ConfigSlot("morph", 
+            Component.translatable("gui.skinlayers3d.config.morph_select").getString(),
+            "😊", this::openMorphWheel));
         configSlots.add(new ConfigSlot("material", 
             Component.translatable("gui.skinlayers3d.config.material_control").getString(),
             "👕", this::openMaterialVisibility));
@@ -382,6 +386,10 @@ public class ConfigWheelScreen extends Screen {
         Minecraft.getInstance().setScreen(new ActionWheelScreen());
     }
     
+    private void openMorphWheel() {
+        Minecraft.getInstance().setScreen(new MorphWheelScreen(monitoredKey));
+    }
+    
     private void openMaterialVisibility() {
         MaterialVisibilityScreen screen = MaterialVisibilityScreen.createForPlayer();
         if (screen != null) {
@@ -405,6 +413,7 @@ public class ConfigWheelScreen extends Screen {
     }
 
     private static class ConfigSlot {
+        @SuppressWarnings("unused") // 预留用于配置持久化
         final String id;
         final String name;
         final String icon;

@@ -1,7 +1,9 @@
 package com.shiroha.skinlayers3d.renderer.model;
 
 import com.shiroha.skinlayers3d.SkinLayers3DClient;
+import com.shiroha.skinlayers3d.renderer.core.EyeTrackingHelper;
 import com.shiroha.skinlayers3d.renderer.core.IMMDModel;
+import com.shiroha.skinlayers3d.renderer.core.RenderContext;
 import com.shiroha.skinlayers3d.renderer.resource.MMDTextureManager;
 import com.shiroha.skinlayers3d.renderer.shader.ShaderProvider;
 import com.shiroha.skinlayers3d.NativeFunc;
@@ -88,6 +90,8 @@ public class MMDModelOpenGL implements IMMDModel {
     
     private FloatBuffer modelViewMatBuff;          // 预分配的矩阵缓冲区
     private FloatBuffer projMatBuff;
+    private FloatBuffer light0Buff;                  // 预分配的光照缓冲区
+    private FloatBuffer light1Buff;
 
     MMDModelOpenGL() {
         // 不在这里初始化时间，等第一次 Update 时初始化
@@ -236,67 +240,73 @@ public class MMDModelOpenGL implements IMMDModel {
         // 预分配矩阵缓冲区（避免每帧分配）
         result.modelViewMatBuff = MemoryUtil.memAllocFloat(16);
         result.projMatBuff = MemoryUtil.memAllocFloat(16);
+        result.light0Buff = MemoryUtil.memAllocFloat(3);
+        result.light1Buff = MemoryUtil.memAllocFloat(3);
+        
+        // 启用自动眨眼
+        nf.SetAutoBlinkEnabled(model, true);
         
         return result;
     }
 
-    public static void Delete(MMDModelOpenGL model) {
-        nf.DeleteModel(model.model);
+    @Override
+    public void dispose() {
+        nf.DeleteModel(model);
         
         // 释放预分配的矩阵缓冲区
-        if (model.modelViewMatBuff != null) {
-            MemoryUtil.memFree(model.modelViewMatBuff);
-            model.modelViewMatBuff = null;
+        if (modelViewMatBuff != null) {
+            MemoryUtil.memFree(modelViewMatBuff);
+            modelViewMatBuff = null;
         }
-        if (model.projMatBuff != null) {
-            MemoryUtil.memFree(model.projMatBuff);
-            model.projMatBuff = null;
+        if (projMatBuff != null) {
+            MemoryUtil.memFree(projMatBuff);
+            projMatBuff = null;
+        }
+        if (light0Buff != null) {
+            MemoryUtil.memFree(light0Buff);
+            light0Buff = null;
+        }
+        if (light1Buff != null) {
+            MemoryUtil.memFree(light1Buff);
+            light1Buff = null;
         }
         
         // 删除 OpenGL 资源
-        GL46C.glDeleteVertexArrays(model.vertexArrayObject);
-        GL46C.glDeleteBuffers(model.indexBufferObject);
-        GL46C.glDeleteBuffers(model.vertexBufferObject);
-        GL46C.glDeleteBuffers(model.colorBufferObject);
-        GL46C.glDeleteBuffers(model.normalBufferObject);
-        GL46C.glDeleteBuffers(model.texcoordBufferObject);
-        GL46C.glDeleteBuffers(model.uv1BufferObject);
-        GL46C.glDeleteBuffers(model.uv2BufferObject);
+        GL46C.glDeleteVertexArrays(vertexArrayObject);
+        GL46C.glDeleteBuffers(indexBufferObject);
+        GL46C.glDeleteBuffers(vertexBufferObject);
+        GL46C.glDeleteBuffers(colorBufferObject);
+        GL46C.glDeleteBuffers(normalBufferObject);
+        GL46C.glDeleteBuffers(texcoordBufferObject);
+        GL46C.glDeleteBuffers(uv1BufferObject);
+        GL46C.glDeleteBuffers(uv2BufferObject);
     }
-
+    
     @Override
-    public void Render(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack mat, int packedLight) {
-        if(entityIn instanceof LivingEntity && tickDelta != 1.0f){
-            RenderLivingEntity((LivingEntity)entityIn, entityYaw, entityPitch, entityTrans, tickDelta, mat, packedLight);
+    public void render(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack mat, int packedLight, RenderContext context) {
+        if (entityIn instanceof LivingEntity && tickDelta != 1.0f) {
+            renderLivingEntity((LivingEntity) entityIn, entityYaw, entityPitch, entityTrans, tickDelta, mat, packedLight, context);
             return;
         }
         Update();
         RenderModel(entityIn, entityYaw, entityPitch, entityTrans, mat);
     }
 
-    public void RenderLivingEntity(LivingEntity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack mat, int packedLight) {
-        float headAngleX = entityIn.getXRot();
-        float headAngleY = (entityYaw - Mth.lerp(tickDelta, entityIn.yHeadRotO, entityIn.yHeadRot))%360.0f;
-        if(headAngleX < -50.0f){
-            headAngleX = -50.0f;
-        }else if(50.0f < headAngleX){
-            headAngleX = 50.0f;
-        }
-        if(headAngleY < -180.0f){
-            headAngleY = headAngleY + 360.0f;
-        } else if(180.0f < headAngleY){
-            headAngleY = headAngleY - 360.0f;
-        }
-        if(headAngleY < -80.0f){
-            headAngleY = -80.0f;
-        }else if(80.0f < headAngleY){
-            headAngleY = 80.0f;
-        }
-        if(SkinLayers3DClient.calledFrom(6).contains("InventoryScreen") || SkinLayers3DClient.calledFrom(6).contains("class_490")){
-            nf.SetHeadAngle(model, headAngleX*((float)Math.PI / 180F), -headAngleY*((float)Math.PI / 180F), 0.0f, false);
-        }else{
-            nf.SetHeadAngle(model, headAngleX*((float)Math.PI / 180F), headAngleY*((float)Math.PI / 180F), 0.0f, true);
-        }
+    private void renderLivingEntity(LivingEntity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack mat, int packedLight, RenderContext context) {
+        // 计算头部角度
+        float headAngleX = Mth.clamp(entityIn.getXRot(), -50.0f, 50.0f);
+        float headAngleY = (entityYaw - Mth.lerp(tickDelta, entityIn.yHeadRotO, entityIn.yHeadRot)) % 360.0f;
+        if (headAngleY < -180.0f) headAngleY += 360.0f;
+        else if (headAngleY > 180.0f) headAngleY -= 360.0f;
+        headAngleY = Mth.clamp(headAngleY, -80.0f, 80.0f);
+        
+        float pitchRad = headAngleX * ((float)Math.PI / 180F);
+        float yawRad = context.isInventoryScene() ? -headAngleY * ((float)Math.PI / 180F) : headAngleY * ((float)Math.PI / 180F);
+        nf.SetHeadAngle(model, pitchRad, yawRad, 0.0f, context.isWorldScene());
+        
+        // 使用公共工具类更新眼球追踪
+        EyeTrackingHelper.updateEyeTracking(nf, model, entityIn, entityYaw, tickDelta);
+        
         Update();
         RenderModel(entityIn, entityYaw, entityPitch, entityTrans, mat);
     }
@@ -475,19 +485,19 @@ public class MMDModelOpenGL implements IMMDModel {
             RenderSystem.glUniformMatrix4(projMatLocation, false, projMatBuff);
 
             if(light0Location != -1){
-                FloatBuffer light0Buff = MemoryUtil.memAllocFloat(3);
+                light0Buff.clear();
                 light0Buff.put(light0Direction.x);
                 light0Buff.put(light0Direction.y);
                 light0Buff.put(light0Direction.z);
-                light0Buff.position(0);
+                light0Buff.flip();
                 RenderSystem.glUniform3(light0Location, light0Buff);
             }
             if(light1Location != -1){
-                FloatBuffer light1Buff = MemoryUtil.memAllocFloat(3);
+                light1Buff.clear();
                 light1Buff.put(light1Direction.x);
                 light1Buff.put(light1Direction.y);
                 light1Buff.put(light1Direction.z);
-                light1Buff.position(0);
+                light1Buff.flip();
                 RenderSystem.glUniform3(light1Location, light1Buff);
             }
             if(sampler0Location != -1){

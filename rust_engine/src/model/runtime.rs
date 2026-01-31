@@ -4,11 +4,22 @@ use crate::animation::{VmdAnimation, AnimationLayerManager};
 use crate::morph::MorphManager;
 use crate::physics::MMDPhysics;
 use crate::skeleton::BoneManager;
-use glam::{Mat4, Vec2, Vec3};
+use glam::{Mat4, Quat, Vec2, Vec3};
 use rayon::prelude::*;
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::{MmdMaterial, RuntimeVertex, SubMesh, VertexWeight};
+
+/// 简单的伪随机数生成（0.0 - 1.0）
+fn rand_float() -> f32 {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos();
+    ((nanos % 10000) as f32) / 10000.0
+}
 
 /// MMD 运行时模型
 pub struct MmdModel {
@@ -43,6 +54,24 @@ pub struct MmdModel {
     head_angle_x: f32,
     head_angle_y: f32,
     head_angle_z: f32,
+    
+    // 眼球追踪（看向摄像头）
+    eye_angle_x: f32,
+    eye_angle_y: f32,
+    eye_tracking_enabled: bool,
+    eye_bone_left: Option<usize>,   // 缓存左眼骨骼索引
+    eye_bone_right: Option<usize>,  // 缓存右眼骨骼索引
+    eye_max_angle: f32,             // 最大眼球角度（弧度）
+    
+    // 自动眨眼
+    auto_blink_enabled: bool,
+    blink_timer: f32,           // 当前计时器
+    blink_interval: f32,        // 眨眼间隔（秒）
+    blink_duration: f32,        // 眨眼持续时间（秒）
+    blink_phase: f32,           // 眨眼进度 0-1（0=督开, 0.5=闭眼, 1=督开）
+    is_blinking: bool,          // 是否正在眨眼
+    blink_morph_index: Option<usize>, // 缓存眨眼 Morph 索引
+    
     debug_logged: bool,
     
     // 模型全局变换
@@ -70,10 +99,15 @@ pub struct MmdModel {
     gpu_morph_offsets: Vec<f32>,
     /// Morph 权重数组（用于 GPU）
     gpu_morph_weights: Vec<f32>,
+    /// 顶点 Morph 索引映射（GPU Morph 索引 -> MorphManager 索引）
+    vertex_morph_indices: Vec<usize>,
     /// 顶点 Morph 数量
     vertex_morph_count: usize,
     /// GPU Morph 数据是否已初始化
     gpu_morph_initialized: bool,
+    
+    // VPD 骨骼姿势覆盖（骨骼索引 -> (位移, 旋转)）
+    vpd_bone_overrides: HashMap<usize, (Vec3, Quat)>,
 }
 
 impl MmdModel {
@@ -101,6 +135,19 @@ impl MmdModel {
             head_angle_x: 0.0,
             head_angle_y: 0.0,
             head_angle_z: 0.0,
+            eye_angle_x: 0.0,
+            eye_angle_y: 0.0,
+            eye_tracking_enabled: false,
+            eye_bone_left: None,
+            eye_bone_right: None,
+            eye_max_angle: 0.35,  // 默认约 20 度
+            auto_blink_enabled: false,
+            blink_timer: 0.0,
+            blink_interval: 4.0,      // 默认 4 秒眨一次
+            blink_duration: 0.15,     // 眨眼持续 0.15 秒
+            blink_phase: 0.0,
+            is_blinking: false,
+            blink_morph_index: None,
             debug_logged: false,
             model_transform: Mat4::IDENTITY,
             physics: None,
@@ -112,8 +159,10 @@ impl MmdModel {
             original_normals: Vec::new(),
             gpu_morph_offsets: Vec::new(),
             gpu_morph_weights: Vec::new(),
+            vertex_morph_indices: Vec::new(),
             vertex_morph_count: 0,
             gpu_morph_initialized: false,
+            vpd_bone_overrides: HashMap::new(),
         }
     }
 
@@ -205,6 +254,13 @@ impl MmdModel {
 
     /// 更新 Morph 动画
     pub fn update_morph_animation(&mut self) {
+        // 先将 update_positions 重置为原始顶点位置（因为 apply_morphs 是累加操作）
+        for (i, vertex) in self.vertices.iter().enumerate() {
+            if i < self.update_positions.len() {
+                self.update_positions[i] = vertex.position;
+            }
+        }
+        // 然后应用 Morph 变形
         self.morph_manager
             .apply_morphs(&mut self.bone_manager, &mut self.update_positions);
     }
@@ -249,7 +305,7 @@ impl MmdModel {
         let positions = &mut self.update_positions;
         let normals = &mut self.update_normals;
         
-        // 并行计算所有顶点
+        // 并行计算所有顶点（使用已应用 Morph 的 update_positions）
         positions
             .par_iter_mut()
             .zip(normals.par_iter_mut())
@@ -258,8 +314,10 @@ impl MmdModel {
             .zip(vertices.par_iter())
             .zip(weights.par_iter())
             .for_each(|(((((pos_out, norm_out), pos_chunk), norm_chunk), vertex), weight)| {
+                // 使用 pos_out（即 update_positions，已应用 Morph）作为蒙皮输入
+                let morph_position = *pos_out;
                 let (pos, norm) = compute_vertex_skinning(
-                    vertex.position,
+                    morph_position,  // 使用已应用 Morph 的位置
                     vertex.normal,
                     weight,
                     &bone_matrices,
@@ -392,7 +450,7 @@ impl MmdModel {
         self.get_layer_max_frame(0)
     }
 
-    /// 更新动画（每帧调用）- 多动画层版本
+    /// 更新动画（每帧调用）- 多动画层版本（CPU蒙皮模式）
     pub fn tick_animation(&mut self, elapsed: f32) {
         // 更新所有动画层
         self.animation_layer_manager.update(elapsed);
@@ -405,6 +463,12 @@ impl MmdModel {
             &mut self.bone_manager,
             &mut self.morph_manager,
         );
+
+        // 应用 VPD 骨骼姿势覆盖（在动画评估后）
+        self.apply_vpd_bone_overrides();
+        
+        // 自动眨眼
+        self.update_auto_blink(elapsed);
 
         self.apply_head_rotation();
         self.update_morph_animation();
@@ -449,6 +513,184 @@ impl MmdModel {
                 break;
             }
         }
+        
+        // 应用眼球追踪
+        self.apply_eye_rotation();
+    }
+    
+    /// 设置眼球追踪角度（会自动限制在最大角度内）
+    pub fn set_eye_angle(&mut self, x: f32, y: f32) {
+        // 限制在最大角度范围内
+        self.eye_angle_x = x.clamp(-self.eye_max_angle, self.eye_max_angle);
+        self.eye_angle_y = y.clamp(-self.eye_max_angle, self.eye_max_angle);
+    }
+    
+    /// 设置眼球最大转动角度（弧度）
+    pub fn set_eye_max_angle(&mut self, max_angle: f32) {
+        self.eye_max_angle = max_angle.clamp(0.1, 1.0); // 约 5.7° - 57°
+    }
+    
+    /// 启用/禁用眼球追踪
+    pub fn set_eye_tracking_enabled(&mut self, enabled: bool) {
+        self.eye_tracking_enabled = enabled;
+        if enabled && self.eye_bone_left.is_none() {
+            // 首次启用时查找眼睛骨骼
+            self.find_eye_bones();
+        }
+    }
+    
+    /// 获取眼球追踪是否启用
+    pub fn is_eye_tracking_enabled(&self) -> bool {
+        self.eye_tracking_enabled
+    }
+    
+    /// 查找眼睛骨骼并缓存索引
+    fn find_eye_bones(&mut self) {
+        // 扩展的眼睛骨骼名称列表
+        let left_eye_names = [
+            "左目", "eye_L", "Eye_L", "LeftEye", "left_eye", "Left_Eye",
+            "eyeL", "EyeL", "左眼", "L_Eye", "eye.L", "Eye.L"
+        ];
+        let right_eye_names = [
+            "右目", "eye_R", "Eye_R", "RightEye", "right_eye", "Right_Eye",
+            "eyeR", "EyeR", "右眼", "R_Eye", "eye.R", "Eye.R"
+        ];
+        
+        // 查找左眼
+        self.eye_bone_left = None;
+        for name in &left_eye_names {
+            if let Some(idx) = self.bone_manager.find_bone_by_name(name) {
+                self.eye_bone_left = Some(idx);
+                break;
+            }
+        }
+        
+        // 查找右眼
+        self.eye_bone_right = None;
+        for name in &right_eye_names {
+            if let Some(idx) = self.bone_manager.find_bone_by_name(name) {
+                self.eye_bone_right = Some(idx);
+                break;
+            }
+        }
+    }
+    
+    /// 应用眼球旋转到骨骼（左目、右目）
+    fn apply_eye_rotation(&mut self) {
+        if !self.eye_tracking_enabled {
+            return;
+        }
+        
+        // 使用缓存的骨骼索引
+        let left_idx = self.eye_bone_left;
+        let right_idx = self.eye_bone_right;
+        
+        if left_idx.is_none() && right_idx.is_none() {
+            return;
+        }
+        
+        // 眼球旋转（上下左右看）
+        // 直接使用眼球追踪角度覆盖动画旋转，确保实时响应
+        let rotation = glam::Quat::from_euler(
+            glam::EulerRot::XYZ,
+            self.eye_angle_x,
+            self.eye_angle_y,
+            0.0,
+        );
+        
+        // 应用到左眼（直接设置而不是累加，确保每帧都准确）
+        if let Some(idx) = left_idx {
+            self.bone_manager.set_bone_rotation(idx, rotation);
+        }
+        
+        // 应用到右眼
+        if let Some(idx) = right_idx {
+            self.bone_manager.set_bone_rotation(idx, rotation);
+        }
+    }
+    
+    // ========== 自动眨眼 ==========
+    
+    /// 启用/禁用自动眨眼
+    pub fn set_auto_blink_enabled(&mut self, enabled: bool) {
+        self.auto_blink_enabled = enabled;
+        if enabled {
+            // 初始化眨眼 Morph 索引缓存
+            self.find_blink_morph();
+            // 随机初始计时器，避免所有模型同时眨眼
+            self.blink_timer = rand_float() * self.blink_interval;
+        }
+    }
+    
+    /// 获取自动眨眼是否启用
+    pub fn is_auto_blink_enabled(&self) -> bool {
+        self.auto_blink_enabled
+    }
+    
+    /// 设置眨眼参数
+    pub fn set_blink_params(&mut self, interval: f32, duration: f32) {
+        self.blink_interval = interval.max(0.5); // 最小 0.5 秒间隔
+        self.blink_duration = duration.clamp(0.05, 0.5); // 0.05-0.5 秒
+    }
+    
+    /// 查找眨眼 Morph 索引
+    fn find_blink_morph(&mut self) {
+        // 常见眨眼 Morph 名称
+        let blink_names = ["まばたき", "眨眼", "blink", "Blink", "まばたき両目", "ウィンク", "wink"];
+        
+        for name in &blink_names {
+            if let Some(idx) = self.morph_manager.find_morph_by_name(name) {
+                self.blink_morph_index = Some(idx);
+                return;
+            }
+        }
+        self.blink_morph_index = None;
+    }
+    
+    /// 更新自动眨眼（每帧调用）
+    /// 返回是否需要同步 GPU Morph 权重
+    fn update_auto_blink(&mut self, delta_time: f32) -> bool {
+        if !self.auto_blink_enabled {
+            return false;
+        }
+        
+        let morph_idx = match self.blink_morph_index {
+            Some(idx) => idx,
+            None => return false,
+        };
+        
+        let mut needs_sync = false;
+        
+        if self.is_blinking {
+            // 正在眨眼，更新进度
+            self.blink_phase += delta_time / self.blink_duration;
+            
+            if self.blink_phase >= 1.0 {
+                // 眨眼结束
+                self.is_blinking = false;
+                self.blink_phase = 0.0;
+                self.morph_manager.set_morph_weight(morph_idx, 0.0);
+                // 添加随机变化到下次眨眼间隔
+                self.blink_timer = self.blink_interval * (0.7 + rand_float() * 0.6);
+                needs_sync = true;
+            } else {
+                // 计算眨眼权重：0 -> 1 -> 0 (使用 sin 曲线)
+                let weight = (self.blink_phase * std::f32::consts::PI).sin();
+                self.morph_manager.set_morph_weight(morph_idx, weight);
+                needs_sync = true;
+            }
+        } else {
+            // 等待下次眨眼
+            self.blink_timer -= delta_time;
+            
+            if self.blink_timer <= 0.0 {
+                // 开始眨眼
+                self.is_blinking = true;
+                self.blink_phase = 0.0;
+            }
+        }
+        
+        needs_sync
     }
     
     /// 设置模型全局变换
@@ -654,8 +896,8 @@ impl MmdModel {
         
         let vertex_count = self.vertices.len();
         
-        // 收集所有顶点类型的 Morph
-        let vertex_morphs: Vec<_> = (0..self.morph_manager.morph_count())
+        // 收集所有顶点类型的 Morph 索引
+        self.vertex_morph_indices = (0..self.morph_manager.morph_count())
             .filter_map(|i| {
                 let morph = self.morph_manager.get_morph(i)?;
                 if morph.morph_type == crate::morph::MorphType::Vertex && !morph.vertex_offsets.is_empty() {
@@ -666,7 +908,7 @@ impl MmdModel {
             })
             .collect();
         
-        self.vertex_morph_count = vertex_morphs.len();
+        self.vertex_morph_count = self.vertex_morph_indices.len();
         
         if self.vertex_morph_count == 0 {
             log::info!("模型没有顶点 Morph，跳过 GPU Morph 初始化");
@@ -680,7 +922,7 @@ impl MmdModel {
         self.gpu_morph_weights = vec![0.0f32; self.vertex_morph_count];
         
         // 填充稀疏数据到密集格式
-        for (morph_idx, &global_morph_idx) in vertex_morphs.iter().enumerate() {
+        for (morph_idx, &global_morph_idx) in self.vertex_morph_indices.iter().enumerate() {
             if let Some(morph) = self.morph_manager.get_morph(global_morph_idx) {
                 let base_offset = morph_idx * vertex_count * 3;
                 for offset in &morph.vertex_offsets {
@@ -709,20 +951,12 @@ impl MmdModel {
             return;
         }
         
-        let vertex_morphs: Vec<_> = (0..self.morph_manager.morph_count())
-            .filter_map(|i| {
-                let morph = self.morph_manager.get_morph(i)?;
-                if morph.morph_type == crate::morph::MorphType::Vertex && !morph.vertex_offsets.is_empty() {
-                    Some((i, morph.weight))
-                } else {
-                    None
+        // 使用保存的索引映射同步权重
+        for (gpu_idx, &morph_idx) in self.vertex_morph_indices.iter().enumerate() {
+            if gpu_idx < self.gpu_morph_weights.len() {
+                if let Some(morph) = self.morph_manager.get_morph(morph_idx) {
+                    self.gpu_morph_weights[gpu_idx] = morph.weight;
                 }
-            })
-            .collect();
-        
-        for (idx, (_, weight)) in vertex_morphs.iter().enumerate() {
-            if idx < self.gpu_morph_weights.len() {
-                self.gpu_morph_weights[idx] = *weight;
             }
         }
     }
@@ -752,6 +986,26 @@ impl MmdModel {
         self.gpu_morph_initialized
     }
     
+    // ========== VPD 骨骼姿势覆盖 ==========
+    
+    /// 设置 VPD 骨骼姿势覆盖
+    pub fn set_vpd_bone_override(&mut self, bone_index: usize, translation: Vec3, rotation: Quat) {
+        self.vpd_bone_overrides.insert(bone_index, (translation, rotation));
+    }
+    
+    /// 清除所有 VPD 骨骼姿势覆盖
+    pub fn clear_vpd_bone_overrides(&mut self) {
+        self.vpd_bone_overrides.clear();
+    }
+    
+    /// 应用 VPD 骨骼姿势覆盖到 BoneManager
+    fn apply_vpd_bone_overrides(&mut self) {
+        for (&bone_index, &(translation, rotation)) in &self.vpd_bone_overrides {
+            self.bone_manager.set_bone_translation(bone_index, translation);
+            self.bone_manager.set_bone_rotation(bone_index, rotation);
+        }
+    }
+    
     /// 仅更新动画（不执行 CPU 蒙皮，用于 GPU 蒙皮模式）
     pub fn tick_animation_no_skinning(&mut self, elapsed: f32) {
         self.animation_layer_manager.update(elapsed);
@@ -761,6 +1015,15 @@ impl MmdModel {
             &mut self.bone_manager,
             &mut self.morph_manager,
         );
+        
+        // 应用 VPD 骨骼姿势覆盖（在动画评估后）
+        self.apply_vpd_bone_overrides();
+        
+        // 自动眨眼（如果眨眼中则同步 GPU Morph 权重）
+        let blink_needs_sync = self.update_auto_blink(elapsed);
+        if blink_needs_sync {
+            self.sync_gpu_morph_weights();
+        }
         
         self.apply_head_rotation();
         self.update_morph_animation();

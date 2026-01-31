@@ -144,14 +144,21 @@ pub fn load_pmx<P: AsRef<Path>>(path: P) -> Result<MmdModel> {
 
     bone_manager.build_hierarchy();
 
-    // 读取变形（跳过，后续完善）
+    // 读取变形
     let mut morph_reader = MorphReader::new(bone_reader)
         .map_err(|e| MmdError::PmxParse(format!("Morph reader error: {:?}", e)))?;
-    while morph_reader
+    
+    let mut morph_manager = crate::morph::MorphManager::new();
+    
+    while let Some(pmx_morph) = morph_reader
         .next::<DefaultConfig>()
         .map_err(|e| MmdError::PmxParse(format!("Morph error: {:?}", e)))?
-        .is_some()
-    {}
+    {
+        let morph = convert_pmx_morph(&pmx_morph);
+        morph_manager.add_morph(morph);
+    }
+    
+    log::info!("加载 {} 个 Morph", morph_manager.morph_count());
 
     // 读取显示帧（跳过）
     let mut display_frame_reader = DisplayFrameReader::new(morph_reader)
@@ -203,7 +210,7 @@ pub fn load_pmx<P: AsRef<Path>>(path: P) -> Result<MmdModel> {
     model.update_normals = update_normals;
     model.update_uvs = update_uvs;
     model.bone_manager = bone_manager;
-    model.morph_manager = crate::morph::MorphManager::new();
+    model.morph_manager = morph_manager;
     
     // 初始化材质可见性（默认全部可见）
     model.init_material_visibility();
@@ -230,6 +237,49 @@ fn vec4_from_arr(v: [f32; 4]) -> Vec4 {
 /// 规范化路径（统一使用正斜杠，与C++版本PathUtil::Normalize一致）
 fn normalize_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
+}
+
+/// 转换 PMX Morph 到内部格式
+fn convert_pmx_morph(pmx_morph: &mmd::pmx::morph::Morph<DefaultConfig>) -> crate::morph::Morph {
+    use mmd::pmx::morph::Offsets;
+    use crate::morph::{Morph, MorphType, VertexMorphOffset, BoneMorphOffset};
+    
+    let (morph_type, vertex_offsets, bone_offsets) = match &pmx_morph.offsets {
+        Offsets::Vertex(offsets) => {
+            let verts: Vec<VertexMorphOffset> = offsets.iter().map(|o| {
+                VertexMorphOffset {
+                    vertex_index: o.vertex as u32,
+                    // 翻转 Z 轴以匹配坐标系转换
+                    offset: Vec3::new(o.offset[0], o.offset[1], -o.offset[2]),
+                }
+            }).collect();
+            (MorphType::Vertex, verts, Vec::new())
+        }
+        Offsets::Bone(offsets) => {
+            let bones: Vec<BoneMorphOffset> = offsets.iter().map(|o| {
+                BoneMorphOffset {
+                    bone_index: o.bone as u32,
+                    translation: Vec3::new(o.translation[0], o.translation[1], -o.translation[2]),
+                    rotation: Vec4::new(o.rotation[0], o.rotation[1], -o.rotation[2], o.rotation[3]),
+                }
+            }).collect();
+            (MorphType::Bone, Vec::new(), bones)
+        }
+        Offsets::Group(_) => (MorphType::Group, Vec::new(), Vec::new()),
+        Offsets::UV(_) => (MorphType::Uv, Vec::new(), Vec::new()),
+        Offsets::AdditionalUV1(_) => (MorphType::AdditionalUv1, Vec::new(), Vec::new()),
+        Offsets::AdditionalUV2(_) => (MorphType::AdditionalUv2, Vec::new(), Vec::new()),
+        Offsets::AdditionalUV3(_) => (MorphType::AdditionalUv3, Vec::new(), Vec::new()),
+        Offsets::AdditionalUV4(_) => (MorphType::AdditionalUv4, Vec::new(), Vec::new()),
+        Offsets::Material(_) => (MorphType::Material, Vec::new(), Vec::new()),
+        Offsets::Flip(_) => (MorphType::Flip, Vec::new(), Vec::new()),
+        Offsets::Impulse(_) => (MorphType::Impulse, Vec::new(), Vec::new()),
+    };
+    
+    let mut morph = Morph::new(pmx_morph.local_name.clone(), morph_type);
+    morph.vertex_offsets = vertex_offsets;
+    morph.bone_offsets = bone_offsets;
+    morph
 }
 
 fn convert_weight_deform(wd: WeightDeform<DefaultConfig>) -> VertexWeight {

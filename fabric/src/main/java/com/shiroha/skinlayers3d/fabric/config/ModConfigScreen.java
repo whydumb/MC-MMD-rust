@@ -219,6 +219,8 @@ public class ModConfigScreen {
         
         builder.setSavingRunnable(() -> {
             SkinLayers3DConfig.save();
+            // 同步渲染模式设置到工厂
+            com.shiroha.skinlayers3d.renderer.core.RenderModeManager.setUseGpuSkinning(data.gpuSkinningEnabled);
         });
         
         return builder.build();

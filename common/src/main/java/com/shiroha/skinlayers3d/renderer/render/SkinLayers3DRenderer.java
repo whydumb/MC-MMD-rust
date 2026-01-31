@@ -2,6 +2,8 @@ package com.shiroha.skinlayers3d.renderer.render;
 
 import com.shiroha.skinlayers3d.SkinLayers3DClient;
 import com.shiroha.skinlayers3d.renderer.animation.MMDAnimManager;
+import com.shiroha.skinlayers3d.renderer.core.EntityAnimState;
+import com.shiroha.skinlayers3d.renderer.core.RenderContext;
 import com.shiroha.skinlayers3d.renderer.model.MMDModelManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -59,13 +61,13 @@ public class SkinLayers3DRenderer<T extends Entity> extends EntityRenderer<T> {
         if(entityIn instanceof LivingEntity){
             if(((LivingEntity) entityIn).getHealth() <= 0.0F){
                 animName = "die";
-                AnimStateChangeOnce(mwed, MMDModelManager.EntityData.EntityState.Die, 0);
+                AnimStateChangeOnce(mwed, EntityAnimState.State.Die, 0);
             }else if(((LivingEntity) entityIn).isSleeping()){
                 animName = "sleep";
                 bodyYaw = ((LivingEntity) entityIn).getBedOrientation().toYRot() + 180.0f;
                 bodyPitch = model.properties.getProperty("sleepingPitch") == null ? 0.0f : Float.valueOf(model.properties.getProperty("sleepingPitch"));
                 entityTrans = model.properties.getProperty("sleepingTrans") == null ? new Vector3f(0.0f) : SkinLayers3DClient.str2Vec3f(model.properties.getProperty("sleepingTrans"));
-                AnimStateChangeOnce(mwed, MMDModelManager.EntityData.EntityState.Sleep, 0);
+                AnimStateChangeOnce(mwed, EntityAnimState.State.Sleep, 0);
             }
             if(((LivingEntity) entityIn).isBaby()){
                 matrixStackIn.scale(0.5f, 0.5f, 0.5f);
@@ -74,21 +76,22 @@ public class SkinLayers3DRenderer<T extends Entity> extends EntityRenderer<T> {
         if(animName == ""){
             if (entityIn.isVehicle() && (entityIn.getX() - entityIn.xo != 0.0f || entityIn.getZ() - entityIn.zo != 0.0f)) {
                 animName = "driven";
-                AnimStateChangeOnce(mwed, MMDModelManager.EntityData.EntityState.Driven, 0);
+                AnimStateChangeOnce(mwed, EntityAnimState.State.Driven, 0);
             } else if (entityIn.isVehicle()) {
                 animName = "ridden";
-                AnimStateChangeOnce(mwed, MMDModelManager.EntityData.EntityState.Ridden, 0);
+                AnimStateChangeOnce(mwed, EntityAnimState.State.Ridden, 0);
             } else if (entityIn.isSwimming()) {
                 animName = "swim";
-                AnimStateChangeOnce(mwed, MMDModelManager.EntityData.EntityState.Swim, 0);
+                AnimStateChangeOnce(mwed, EntityAnimState.State.Swim, 0);
             } else if ( (entityIn.getX() - entityIn.xo != 0.0f || entityIn.getZ() - entityIn.zo != 0.0f) && entityIn.getVehicle() == null) {
                 animName = "walk";
-                AnimStateChangeOnce(mwed, MMDModelManager.EntityData.EntityState.Walk, 0);
+                AnimStateChangeOnce(mwed, EntityAnimState.State.Walk, 0);
             } else {
                 animName = "idle";
-                AnimStateChangeOnce(mwed, MMDModelManager.EntityData.EntityState.Idle, 0);
+                AnimStateChangeOnce(mwed, EntityAnimState.State.Idle, 0);
             }
         }
+        // 使用显式的 RenderContext 而不是调用栈检测
         if(SkinLayers3DClient.calledFrom(6).contains("Inventory") || SkinLayers3DClient.calledFrom(6).contains("class_490")){ // net.minecraft.class_490 == net.minecraft.client.gui.screen.ingame.InventoryScreen
             RenderSystem.setShader(GameRenderer::getPositionTexShader);
             PoseStack PTS_modelViewStack = RenderSystem.getModelViewStack();
@@ -107,12 +110,12 @@ public class SkinLayers3DRenderer<T extends Entity> extends EntityRenderer<T> {
             quaternionf.mul(quaternionf2);
             PTS_modelViewStack.mulPose(quaternionf);
             RenderSystem.setShader(GameRenderer::getRendertypeEntityCutoutNoCullShader);
-            model.model.Render(entityIn, entityYaw, 0.0f, new Vector3f(0.0f), tickDelta, PTS_modelViewStack, packedLightIn);
+            model.model.render(entityIn, entityYaw, 0.0f, new Vector3f(0.0f), tickDelta, PTS_modelViewStack, packedLightIn, RenderContext.INVENTORY);
             PTS_modelViewStack.popPose();
         }else{
             matrixStackIn.scale(size[0], size[0], size[0]);
             RenderSystem.setShader(GameRenderer::getRendertypeEntityCutoutNoCullShader);
-            model.model.Render(entityIn, bodyYaw, bodyPitch, entityTrans, tickDelta, matrixStackIn, packedLightIn);
+            model.model.render(entityIn, bodyYaw, bodyPitch, entityTrans, tickDelta, matrixStackIn, packedLightIn, RenderContext.WORLD);
         }
         matrixStackIn.popPose();
     }
@@ -124,11 +127,11 @@ public class SkinLayers3DRenderer<T extends Entity> extends EntityRenderer<T> {
         return size;
     }
 
-    void AnimStateChangeOnce(MMDModelManager.ModelWithEntityData model, MMDModelManager.EntityData.EntityState targetState, Integer layer) {
-        String Property = MMDModelManager.EntityData.stateProperty.get(targetState);
+    void AnimStateChangeOnce(MMDModelManager.ModelWithEntityData model, EntityAnimState.State targetState, Integer layer) {
+        String property = EntityAnimState.getPropertyName(targetState);
         if (model.entityData.stateLayers[layer] != targetState) {
             model.entityData.stateLayers[layer] = targetState;
-            model.model.ChangeAnim(MMDAnimManager.GetAnimModel(model.model, Property), layer);
+            model.model.ChangeAnim(MMDAnimManager.GetAnimModel(model.model, property), layer);
         }
     }
 

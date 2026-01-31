@@ -20,7 +20,11 @@ public class GpuSkinningShader {
     
     private int program = 0;
     private int boneMatrixSSBO = 0;
+    private int morphOffsetsSSBO = 0;
+    private int morphWeightsSSBO = 0;
     private boolean initialized = false;
+    private int morphCountLocation = -1;
+    private int vertexCountLocation = -1;
     
     // Uniform locations
     private int projMatLocation = -1;
@@ -54,10 +58,22 @@ public class GpuSkinningShader {
             mat4 boneMatrices[2048];
         };
         
+        // Morph 偏移 SSBO (morphCount * vertexCount * 3)
+        layout(std430, binding = 1) readonly buffer MorphOffsets {
+            float morphOffsets[];
+        };
+        
+        // Morph 权重 SSBO
+        layout(std430, binding = 2) readonly buffer MorphWeights {
+            float morphWeights[];
+        };
+        
         // Uniforms
         uniform mat4 ProjMat;
         uniform mat4 ModelViewMat;
         uniform float LightIntensity;
+        uniform int MorphCount;
+        uniform int VertexCount;
         
         // 输出到片段着色器
         out vec2 texCoord0;
@@ -90,8 +106,23 @@ public class GpuSkinningShader {
                 skinMatrix = mat4(1.0);
             }
             
+            // 先应用 Morph 偏移
+            vec3 morphedPos = Position;
+            if (MorphCount > 0 && VertexCount > 0) {
+                uint vid = uint(gl_VertexID);
+                for (int m = 0; m < MorphCount && m < 128; m++) {
+                    float weight = morphWeights[m];
+                    if (weight > 0.001) {
+                        uint offsetIdx = m * VertexCount * 3 + vid * 3;
+                        morphedPos.x += morphOffsets[offsetIdx] * weight;
+                        morphedPos.y += morphOffsets[offsetIdx + 1] * weight;
+                        morphedPos.z += morphOffsets[offsetIdx + 2] * weight;
+                    }
+                }
+            }
+            
             // 应用蒙皮变换
-            vec4 skinnedPos = skinMatrix * vec4(Position, 1.0);
+            vec4 skinnedPos = skinMatrix * vec4(morphedPos, 1.0);
             
             // 法线变换：使用蒙皮矩阵的3x3部分（简化处理）
             mat3 normalMatrix = mat3(ModelViewMat) * mat3(skinMatrix);
@@ -193,6 +224,8 @@ public class GpuSkinningShader {
             modelViewMatLocation = GL46C.glGetUniformLocation(program, "ModelViewMat");
             sampler0Location = GL46C.glGetUniformLocation(program, "Sampler0");
             lightIntensityLocation = GL46C.glGetUniformLocation(program, "LightIntensity");
+            morphCountLocation = GL46C.glGetUniformLocation(program, "MorphCount");
+            vertexCountLocation = GL46C.glGetUniformLocation(program, "VertexCount");
             
             // 获取 attribute 位置
             positionLocation = GL46C.glGetAttribLocation(program, "Position");
@@ -205,9 +238,12 @@ public class GpuSkinningShader {
             // 创建骨骼矩阵 SSBO
             boneMatrixSSBO = GL46C.glGenBuffers();
             GL46C.glBindBuffer(GL46C.GL_SHADER_STORAGE_BUFFER, boneMatrixSSBO);
-            // 预分配空间：256 个 mat4（每个 64 字节）
             GL46C.glBufferData(GL46C.GL_SHADER_STORAGE_BUFFER, MAX_BONES * 64, GL46C.GL_DYNAMIC_DRAW);
             GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 0, boneMatrixSSBO);
+            
+            // 创建 Morph SSBO（初始大小为 0，会在 uploadMorphData 时重新分配）
+            morphOffsetsSSBO = GL46C.glGenBuffers();
+            morphWeightsSSBO = GL46C.glGenBuffers();
             
             initialized = true;
             logger.info("GPU蒙皮着色器初始化成功");
@@ -279,6 +315,56 @@ public class GpuSkinningShader {
     
     public boolean isInitialized() { return initialized; }
     
+    /**
+     * 上传 Morph 偏移数据（静态，只需上传一次）
+     */
+    public void uploadMorphOffsets(java.nio.ByteBuffer data, int morphCount, int vertexCount) {
+        if (!initialized || morphOffsetsSSBO == 0) return;
+        
+        GL46C.glBindBuffer(GL46C.GL_SHADER_STORAGE_BUFFER, morphOffsetsSSBO);
+        GL46C.glBufferData(GL46C.GL_SHADER_STORAGE_BUFFER, data, GL46C.GL_STATIC_DRAW);
+        
+        // 预分配权重缓冲区
+        GL46C.glBindBuffer(GL46C.GL_SHADER_STORAGE_BUFFER, morphWeightsSSBO);
+        GL46C.glBufferData(GL46C.GL_SHADER_STORAGE_BUFFER, morphCount * 4L, GL46C.GL_DYNAMIC_DRAW);
+        
+    }
+    
+    /**
+     * 更新 Morph 权重（每帧调用）
+     */
+    public void updateMorphWeights(java.nio.FloatBuffer weights) {
+        if (!initialized || morphWeightsSSBO == 0) return;
+        
+        GL46C.glBindBuffer(GL46C.GL_SHADER_STORAGE_BUFFER, morphWeightsSSBO);
+        weights.position(0);
+        GL46C.glBufferSubData(GL46C.GL_SHADER_STORAGE_BUFFER, 0, weights);
+    }
+    
+    /**
+     * 绑定 Morph SSBO
+     */
+    public void bindMorphSSBOs() {
+        if (morphOffsetsSSBO > 0) {
+            GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 1, morphOffsetsSSBO);
+        }
+        if (morphWeightsSSBO > 0) {
+            GL46C.glBindBufferBase(GL46C.GL_SHADER_STORAGE_BUFFER, 2, morphWeightsSSBO);
+        }
+    }
+    
+    /**
+     * 设置 Morph 参数
+     */
+    public void setMorphParams(int morphCount, int vertexCount) {
+        if (morphCountLocation >= 0) {
+            GL46C.glUniform1i(morphCountLocation, morphCount);
+        }
+        if (vertexCountLocation >= 0) {
+            GL46C.glUniform1i(vertexCountLocation, vertexCount);
+        }
+    }
+    
     public void cleanup() {
         if (program > 0) {
             GL46C.glDeleteProgram(program);
@@ -287,6 +373,14 @@ public class GpuSkinningShader {
         if (boneMatrixSSBO > 0) {
             GL46C.glDeleteBuffers(boneMatrixSSBO);
             boneMatrixSSBO = 0;
+        }
+        if (morphOffsetsSSBO > 0) {
+            GL46C.glDeleteBuffers(morphOffsetsSSBO);
+            morphOffsetsSSBO = 0;
+        }
+        if (morphWeightsSSBO > 0) {
+            GL46C.glDeleteBuffers(morphWeightsSSBO);
+            morphWeightsSSBO = 0;
         }
         initialized = false;
     }

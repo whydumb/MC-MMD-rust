@@ -5,7 +5,6 @@ import com.mojang.blaze3d.vertex.*;
 import com.shiroha.skinlayers3d.renderer.animation.MMDAnimManager;
 import com.shiroha.skinlayers3d.renderer.model.MMDModelManager;
 import com.shiroha.skinlayers3d.ui.ActionWheelConfig;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.GameRenderer;

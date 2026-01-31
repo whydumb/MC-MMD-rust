@@ -40,6 +40,8 @@ public class ToonShader {
     private int shadowColorLocation = -1;
     private int specularPowerLocation = -1;
     private int specularIntensityLocation = -1;
+    private int morphCountLocation = -1;
+    private int vertexCountLocation = -1;
     
     // 描边着色器 Uniform locations
     private int outlineProjMatLocation = -1;
@@ -76,8 +78,18 @@ public class ToonShader {
             mat4 boneMatrices[2048];
         };
         
+        layout(std430, binding = 1) readonly buffer MorphOffsets {
+            float morphOffsets[];
+        };
+        
+        layout(std430, binding = 2) readonly buffer MorphWeights {
+            float morphWeights[];
+        };
+        
         uniform mat4 ProjMat;
         uniform mat4 ModelViewMat;
+        uniform int MorphCount;
+        uniform int VertexCount;
         
         out vec2 texCoord0;
         out vec3 viewNormal;
@@ -107,7 +119,22 @@ public class ToonShader {
                 skinMatrix = mat4(1.0);
             }
             
-            vec4 skinnedPos = skinMatrix * vec4(Position, 1.0);
+            // 先应用 Morph 偏移
+            vec3 morphedPos = Position;
+            if (MorphCount > 0 && VertexCount > 0) {
+                uint vid = uint(gl_VertexID);
+                for (int m = 0; m < MorphCount && m < 128; m++) {
+                    float w = morphWeights[m];
+                    if (w > 0.001) {
+                        uint offsetIdx = m * VertexCount * 3 + vid * 3;
+                        morphedPos.x += morphOffsets[offsetIdx] * w;
+                        morphedPos.y += morphOffsets[offsetIdx + 1] * w;
+                        morphedPos.z += morphOffsets[offsetIdx + 2] * w;
+                    }
+                }
+            }
+            
+            vec4 skinnedPos = skinMatrix * vec4(morphedPos, 1.0);
             vec4 viewPosition = ModelViewMat * skinnedPos;
             
             mat3 normalMatrix = mat3(ModelViewMat) * mat3(skinMatrix);
@@ -299,6 +326,8 @@ public class ToonShader {
             shadowColorLocation = GL46C.glGetUniformLocation(mainProgram, "ShadowColor");
             specularPowerLocation = GL46C.glGetUniformLocation(mainProgram, "SpecularPower");
             specularIntensityLocation = GL46C.glGetUniformLocation(mainProgram, "SpecularIntensity");
+            morphCountLocation = GL46C.glGetUniformLocation(mainProgram, "MorphCount");
+            vertexCountLocation = GL46C.glGetUniformLocation(mainProgram, "VertexCount");
             
             // 获取主着色器 attribute 位置
             positionLocation = GL46C.glGetAttribLocation(mainProgram, "Position");
@@ -442,6 +471,15 @@ public class ToonShader {
     public void setShadowColor(float r, float g, float b) {
         if (shadowColorLocation >= 0) {
             GL46C.glUniform3f(shadowColorLocation, r, g, b);
+        }
+    }
+    
+    public void setMorphParams(int morphCount, int vertexCount) {
+        if (morphCountLocation >= 0) {
+            GL46C.glUniform1i(morphCountLocation, morphCount);
+        }
+        if (vertexCountLocation >= 0) {
+            GL46C.glUniform1i(vertexCountLocation, vertexCount);
         }
     }
     

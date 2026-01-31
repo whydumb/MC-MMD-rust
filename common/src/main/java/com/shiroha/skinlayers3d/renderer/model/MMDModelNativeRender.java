@@ -1,8 +1,8 @@
 package com.shiroha.skinlayers3d.renderer.model;
 
 import com.shiroha.skinlayers3d.NativeFunc;
-import com.shiroha.skinlayers3d.SkinLayers3DClient;
 import com.shiroha.skinlayers3d.renderer.core.IMMDModel;
+import com.shiroha.skinlayers3d.renderer.core.RenderContext;
 import com.shiroha.skinlayers3d.renderer.resource.MMDTextureManager;
 
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -156,55 +156,53 @@ public class MMDModelNativeRender implements IMMDModel {
         }
     }
     
-    public static void Delete(MMDModelNativeRender model) {
-        if (model.posBuffer != null) {
-            MemoryUtil.memFree(model.posBuffer);
-            model.posBuffer = null;
+    @Override
+    public void dispose() {
+        if (posBuffer != null) {
+            MemoryUtil.memFree(posBuffer);
+            posBuffer = null;
         }
-        if (model.norBuffer != null) {
-            MemoryUtil.memFree(model.norBuffer);
-            model.norBuffer = null;
+        if (norBuffer != null) {
+            MemoryUtil.memFree(norBuffer);
+            norBuffer = null;
         }
-        if (model.uv0Buffer != null) {
-            MemoryUtil.memFree(model.uv0Buffer);
-            model.uv0Buffer = null;
+        if (uv0Buffer != null) {
+            MemoryUtil.memFree(uv0Buffer);
+            uv0Buffer = null;
         }
-        if (model.subMeshVertexBuffers != null) {
-            for (VertexBuffer vb : model.subMeshVertexBuffers) {
+        if (subMeshVertexBuffers != null) {
+            for (VertexBuffer vb : subMeshVertexBuffers) {
                 if (vb != null) vb.close();
             }
-            model.subMeshVertexBuffers = null;
+            subMeshVertexBuffers = null;
         }
-        if (model.model != 0) {
-            nf.DeleteModel(model.model);
-            model.model = 0;
+        if (model != 0) {
+            nf.DeleteModel(model);
+            model = 0;
         }
     }
     
     @Override
-    public void Render(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack poseStack, int packedLight) {
+    public void render(Entity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack poseStack, int packedLight, RenderContext context) {
         if (entityIn instanceof LivingEntity && tickDelta != 1.0f) {
-            RenderLivingEntity((LivingEntity) entityIn, entityYaw, entityPitch, entityTrans, tickDelta, poseStack, packedLight);
+            renderLivingEntity((LivingEntity) entityIn, entityYaw, entityPitch, entityTrans, tickDelta, poseStack, packedLight, context);
             return;
         }
         Update();
         RenderModel(entityIn, entityYaw, entityPitch, entityTrans, poseStack, packedLight);
     }
     
-    public void RenderLivingEntity(LivingEntity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack poseStack, int packedLight) {
+    private void renderLivingEntity(LivingEntity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack poseStack, int packedLight, RenderContext context) {
         // 头部角度处理
-        float headAngleX = entityIn.getXRot();
+        float headAngleX = Mth.clamp(entityIn.getXRot(), -50.0f, 50.0f);
         float headAngleY = (entityYaw - Mth.lerp(tickDelta, entityIn.yHeadRotO, entityIn.yHeadRot)) % 360.0f;
-        headAngleX = Mth.clamp(headAngleX, -50.0f, 50.0f);
         if (headAngleY < -180.0f) headAngleY += 360.0f;
         else if (headAngleY > 180.0f) headAngleY -= 360.0f;
         headAngleY = Mth.clamp(headAngleY, -80.0f, 80.0f);
         
-        if (SkinLayers3DClient.calledFrom(6).contains("InventoryScreen") || SkinLayers3DClient.calledFrom(6).contains("class_490")) {
-            nf.SetHeadAngle(model, headAngleX * ((float) Math.PI / 180F), -headAngleY * ((float) Math.PI / 180F), 0.0f, false);
-        } else {
-            nf.SetHeadAngle(model, headAngleX * ((float) Math.PI / 180F), headAngleY * ((float) Math.PI / 180F), 0.0f, true);
-        }
+        float pitchRad = headAngleX * ((float) Math.PI / 180F);
+        float yawRad = context.isInventoryScene() ? -headAngleY * ((float) Math.PI / 180F) : headAngleY * ((float) Math.PI / 180F);
+        nf.SetHeadAngle(model, pitchRad, yawRad, 0.0f, context.isWorldScene());
         
         Update();
         RenderModel(entityIn, entityYaw, entityPitch, entityTrans, poseStack, packedLight);

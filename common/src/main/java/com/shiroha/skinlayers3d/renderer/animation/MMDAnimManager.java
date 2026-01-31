@@ -3,7 +3,6 @@ package com.shiroha.skinlayers3d.renderer.animation;
 import com.shiroha.skinlayers3d.NativeFunc;
 import com.shiroha.skinlayers3d.renderer.core.IMMDModel;
 import java.io.File;
-import java.util.Collection;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -71,9 +70,12 @@ public class MMDAnimManager {
     }
 
     public static void DeleteModel(IMMDModel model) {
-        Collection<Long> arr = animModel.get(model).values();
-        for (Long i : arr)
-            nf.DeleteAnimation(i);
+        Map<String, Long> sub = animModel.get(model);
+        if (sub != null) {
+            for (Long i : sub.values()) {
+                nf.DeleteAnimation(i);
+            }
+        }
         animModel.remove(model);
     }
 
