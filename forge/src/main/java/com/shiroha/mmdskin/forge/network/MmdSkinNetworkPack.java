@@ -24,7 +24,7 @@ import net.minecraftforge.network.PacketDistributor;
  * - 移除旧的 EntityPlayer_ 前缀查找逻辑
  * - 使用配置系统获取玩家模型
  */
-public class SkinLayers3DNetworkPack {
+public class MmdSkinNetworkPack {
     public int opCode;
     public UUID playerUUID;
     public String animId; // 动画ID（字符串）
@@ -33,7 +33,7 @@ public class SkinLayers3DNetworkPack {
     /**
      * 构造函数（字符串参数）
      */
-    public SkinLayers3DNetworkPack(int opCode, UUID playerUUID, String animId) {
+    public MmdSkinNetworkPack(int opCode, UUID playerUUID, String animId) {
         this.opCode = opCode;
         this.playerUUID = playerUUID;
         this.animId = animId;
@@ -43,7 +43,7 @@ public class SkinLayers3DNetworkPack {
     /**
      * 构造函数（整数参数）
      */
-    public SkinLayers3DNetworkPack(int opCode, UUID playerUUID, int arg0) {
+    public MmdSkinNetworkPack(int opCode, UUID playerUUID, int arg0) {
         this.opCode = opCode;
         this.playerUUID = playerUUID;
         this.animId = "";
@@ -53,7 +53,7 @@ public class SkinLayers3DNetworkPack {
     /**
      * 构造函数（女仆模型变更：entityId + modelName）
      */
-    public SkinLayers3DNetworkPack(int opCode, UUID playerUUID, int entityId, String modelName) {
+    public MmdSkinNetworkPack(int opCode, UUID playerUUID, int entityId, String modelName) {
         this.opCode = opCode;
         this.playerUUID = playerUUID;
         this.animId = modelName;
@@ -63,7 +63,7 @@ public class SkinLayers3DNetworkPack {
     /**
      * 从缓冲区读取
      */
-    public SkinLayers3DNetworkPack(FriendlyByteBuf buffer) {
+    public MmdSkinNetworkPack(FriendlyByteBuf buffer) {
         opCode = buffer.readInt();
         playerUUID = new UUID(buffer.readLong(), buffer.readLong());
         
@@ -108,7 +108,7 @@ public class SkinLayers3DNetworkPack {
                 DoInClient();
             } else {
                 // 服务器端：转发给所有客户端
-                SkinLayers3DRegisterCommon.channel.send(PacketDistributor.ALL.noArg(), this);
+                MmdSkinRegisterCommon.channel.send(PacketDistributor.ALL.noArg(), this);
             }
         });
         ctx.get().setPacketHandled(true);

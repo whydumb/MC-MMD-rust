@@ -3,6 +3,8 @@ package com.shiroha.mmdskin.ui;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.*;
 import com.shiroha.mmdskin.NativeFunc;
+import com.shiroha.mmdskin.config.PathConstants;
+import com.shiroha.mmdskin.config.UIConstants;
 import com.shiroha.mmdskin.renderer.model.MMDModelManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -55,7 +57,7 @@ public class MorphWheelScreen extends Screen {
     }
     
     public MorphWheelScreen(int triggerKeyCode) {
-        super(Component.translatable("gui.skinlayers3d.morph_wheel"));
+        super(Component.translatable("gui.mmdskin.morph_wheel"));
         this.triggerKeyCode = triggerKeyCode;
     }
     
@@ -99,20 +101,17 @@ public class MorphWheelScreen extends Screen {
     }
     
     private String getMorphFilePath(MorphWheelConfig.MorphEntry entry) {
-        Minecraft mc = Minecraft.getInstance();
-        String gameDir = mc.gameDirectory.getAbsolutePath();
-        
         switch (entry.source) {
             case "DEFAULT":
-                return gameDir + "/3d-skin/DefaultMorph/" + entry.morphName + ".vpd";
+                return PathConstants.getDefaultMorphPath(entry.morphName);
             case "CUSTOM":
-                return gameDir + "/3d-skin/CustomMorph/" + entry.morphName + ".vpd";
+                return PathConstants.getCustomMorphPath(entry.morphName);
             case "MODEL":
                 if (entry.modelName != null) {
-                    return gameDir + "/3d-skin/EntityPlayer/" + entry.modelName + "/" + entry.morphName + ".vpd";
+                    return PathConstants.getModelMorphPath(entry.modelName, entry.morphName);
                 }
             default:
-                return gameDir + "/3d-skin/CustomMorph/" + entry.morphName + ".vpd";
+                return PathConstants.getCustomMorphPath(entry.morphName);
         }
     }
     
@@ -408,7 +407,7 @@ public class MorphWheelScreen extends Screen {
         String selectedModel = ModelSelectorConfig.getInstance().getPlayerModel(playerName);
         
         // 如果是默认渲染，不处理
-        if (selectedModel.equals("默认 (原版渲染)") || selectedModel.isEmpty()) {
+        if (selectedModel.equals(UIConstants.DEFAULT_MODEL_NAME) || selectedModel.isEmpty()) {
             logger.warn("当前使用默认渲染，无法应用表情");
             return;
         }

@@ -11,7 +11,7 @@ import java.nio.file.Path;
 
 /**
  * Fabric 配置实现
- * 使用 JSON 格式，配置文件位于 config/skinlayers3d/config.json
+ * 使用 JSON 格式，配置文件位于 config/mmdskin/config.json
  */
 public final class MmdSkinConfig implements ConfigManager.IConfigProvider {
     private static final Logger logger = LogManager.getLogger();
@@ -20,7 +20,7 @@ public final class MmdSkinConfig implements ConfigManager.IConfigProvider {
     private static Path configPath;
     
     private MmdSkinConfig() {
-        configPath = FabricLoader.getInstance().getConfigDir().resolve("skinlayers3d");
+        configPath = FabricLoader.getInstance().getConfigDir().resolve("mmdskin");
         data = ConfigData.load(configPath);
     }
     

@@ -2,14 +2,12 @@ package com.shiroha.mmdskin.ui;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.shiroha.mmdskin.config.PathConstants;
 import com.shiroha.mmdskin.renderer.animation.AnimationInfo;
-import net.minecraft.client.Minecraft;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -23,7 +21,6 @@ import java.util.List;
  */
 public class ActionWheelConfig {
     private static final Logger LOGGER = LogManager.getLogger();
-    private static final String CONFIG_FILE = "config/skinlayers3d/action_wheel.json";
     private static ActionWheelConfig instance;
     
     private List<ActionEntry> displayedActions; // 轮盘显示的动作
@@ -79,15 +76,15 @@ public class ActionWheelConfig {
      */
     public void load() {
         try {
-            Path configPath = getConfigPath();
-            if (!Files.exists(configPath)) {
+            File configFile = PathConstants.getActionWheelConfigFile();
+            if (!configFile.exists()) {
                 LOGGER.info("动作轮盘配置文件不存在，使用默认配置");
                 loadDefaultDisplayedActions();
                 save();
                 return;
             }
 
-            try (Reader reader = new InputStreamReader(new FileInputStream(configPath.toFile()), java.nio.charset.StandardCharsets.UTF_8)) {
+            try (Reader reader = new InputStreamReader(new FileInputStream(configFile), java.nio.charset.StandardCharsets.UTF_8)) {
                 Gson gson = new Gson();
                 ConfigData data = gson.fromJson(reader, ConfigData.class);
                 if (data != null && data.displayedActions != null) {
@@ -131,10 +128,10 @@ public class ActionWheelConfig {
      */
     public void save() {
         try {
-            Path configPath = getConfigPath();
-            Files.createDirectories(configPath.getParent());
+            File configFile = PathConstants.getActionWheelConfigFile();
+            PathConstants.ensureDirectoryExists(configFile.getParentFile());
 
-            try (Writer writer = new OutputStreamWriter(new FileOutputStream(configPath.toFile()), java.nio.charset.StandardCharsets.UTF_8)) {
+            try (Writer writer = new OutputStreamWriter(new FileOutputStream(configFile), java.nio.charset.StandardCharsets.UTF_8)) {
                 Gson gson = new GsonBuilder().setPrettyPrinting().create();
                 ConfigData data = new ConfigData();
                 data.displayedActions = this.displayedActions;
@@ -146,12 +143,6 @@ public class ActionWheelConfig {
         }
     }
 
-    /**
-     * 获取配置文件路径
-     */
-    private Path getConfigPath() {
-        return Minecraft.getInstance().gameDirectory.toPath().resolve(CONFIG_FILE);
-    }
 
     /**
      * 获取轮盘显示的动作列表

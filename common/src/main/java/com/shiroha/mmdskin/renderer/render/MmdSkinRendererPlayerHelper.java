@@ -1,5 +1,6 @@
 package com.shiroha.mmdskin.renderer.render;
 
+import com.shiroha.mmdskin.config.UIConstants;
 import com.shiroha.mmdskin.renderer.core.IMMDModel;
 import com.shiroha.mmdskin.renderer.animation.MMDAnimManager;
 import com.shiroha.mmdskin.renderer.model.MMDModelManager;
@@ -16,7 +17,7 @@ public class MmdSkinRendererPlayerHelper {
         String selectedModel = com.shiroha.mmdskin.ui.ModelSelectorConfig.getInstance().getPlayerModel(playerName);
         
         // 如果是默认渲染，不处理
-        if (selectedModel.equals("默认 (原版渲染)") || selectedModel.isEmpty()) {
+        if (selectedModel.equals(UIConstants.DEFAULT_MODEL_NAME) || selectedModel.isEmpty()) {
             return;
         }
         
@@ -37,7 +38,7 @@ public class MmdSkinRendererPlayerHelper {
         String selectedModel = com.shiroha.mmdskin.ui.ModelSelectorConfig.getInstance().getPlayerModel(playerName);
         
         // 如果是默认渲染，不处理
-        if (selectedModel.equals("默认 (原版渲染)") || selectedModel.isEmpty()) {
+        if (selectedModel.equals(UIConstants.DEFAULT_MODEL_NAME) || selectedModel.isEmpty()) {
             return;
         }
         

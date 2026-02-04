@@ -1,5 +1,6 @@
 package com.shiroha.mmdskin.maid;
 
+import com.shiroha.mmdskin.config.UIConstants;
 import com.shiroha.mmdskin.renderer.model.ModelInfo;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -51,14 +52,14 @@ public class MaidModelSelectorScreen extends Screen {
     private int hoveredCardIndex = -1;
 
     public MaidModelSelectorScreen(UUID maidUUID, int maidEntityId, String maidName) {
-        super(Component.translatable("gui.skinlayers3d.maid_model_selector"));
+        super(Component.translatable("gui.mmdskin.maid_model_selector"));
         this.maidUUID = maidUUID;
         this.maidEntityId = maidEntityId;
         this.maidName = maidName;
         this.modelCards = new ArrayList<>();
         this.currentModel = MaidMMDModelManager.getBindingModelName(maidUUID);
         if (this.currentModel == null) {
-            this.currentModel = "默认 (原版渲染)";
+            this.currentModel = UIConstants.DEFAULT_MODEL_NAME;
         }
         loadAvailableModels();
     }
@@ -67,7 +68,7 @@ public class MaidModelSelectorScreen extends Screen {
         modelCards.clear();
         
         // 添加默认选项（使用原版渲染）
-        modelCards.add(new ModelCardEntry("默认 (原版渲染)", null));
+        modelCards.add(new ModelCardEntry(UIConstants.DEFAULT_MODEL_NAME, null));
         
         // 使用 ModelInfo 扫描所有模型
         List<ModelInfo> models = ModelInfo.scanModels();

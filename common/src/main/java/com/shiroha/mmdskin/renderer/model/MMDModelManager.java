@@ -25,7 +25,7 @@ import org.apache.logging.log4j.Logger;
  * - 缓存管理：委托给 {@link ModelCache}
  * - 渲染模式：委托给 {@link RenderModeManager}
  * - 实体状态：使用 {@link EntityAnimState}
- * - 模型创建：委托给已注册的 {@link com.shiroha.skinlayers3d.renderer.core.IMMDModelFactory}
+ * - 模型创建：委托给已注册的 {@link com.shiroha.mmdskin.renderer.core.IMMDModelFactory}
  */
 public class MMDModelManager {
     static final Logger logger = LogManager.getLogger();

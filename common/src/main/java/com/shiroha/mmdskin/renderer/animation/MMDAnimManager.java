@@ -1,15 +1,15 @@
 package com.shiroha.mmdskin.renderer.animation;
 
 import com.shiroha.mmdskin.NativeFunc;
+import com.shiroha.mmdskin.config.PathConstants;
 import com.shiroha.mmdskin.renderer.core.IMMDModel;
 import java.io.File;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import net.minecraft.client.Minecraft;
 
 /**
  * MMD 动画管理器
@@ -29,15 +29,22 @@ public class MMDAnimManager {
     static Map<String, Long> animStatic; // 线程安全
     static Map<IMMDModel, Map<String, Long>> animModel; // 线程安全
     
-    // 动画文件目录
-    static String gameDir = Minecraft.getInstance().gameDirectory.getAbsolutePath();
-    static String defaultAnimDir = new File(gameDir, "3d-skin/DefaultAnim").getAbsolutePath();
-    static String customAnimDir = new File(gameDir, "3d-skin/CustomAnim").getAbsolutePath();
+    // 动画文件目录（延迟初始化）
+    static String defaultAnimDir;
+    static String customAnimDir;
+    
+    // 已警告过的动画名称（避免重复刷屏）
+    static Set<String> warnedAnimations;
 
     public static void Init() {
         nf = NativeFunc.GetInst();
         animStatic = new ConcurrentHashMap<>(); // 线程安全
         animModel = new ConcurrentHashMap<>(); // 线程安全
+        warnedAnimations = ConcurrentHashMap.newKeySet(); // 线程安全
+        
+        // 初始化目录路径
+        defaultAnimDir = PathConstants.getDefaultAnimDir().getAbsolutePath();
+        customAnimDir = PathConstants.getCustomAnimDir().getAbsolutePath();
         
         // 确保目录存在
         ensureDirectoriesExist();
@@ -51,16 +58,14 @@ public class MMDAnimManager {
      * 确保动画目录存在
      */
     private static void ensureDirectoriesExist() {
-        File defaultDir = new File(defaultAnimDir);
-        File customDir = new File(customAnimDir);
+        File defaultDir = PathConstants.getDefaultAnimDir();
+        File customDir = PathConstants.getCustomAnimDir();
         
-        if (!defaultDir.exists()) {
-            defaultDir.mkdirs();
+        if (PathConstants.ensureDirectoryExists(defaultDir)) {
             logger.info("创建默认动画目录: " + defaultAnimDir);
         }
         
-        if (!customDir.exists()) {
-            customDir.mkdirs();
+        if (PathConstants.ensureDirectoryExists(customDir)) {
             logger.info("创建自定义动画目录: " + customAnimDir);
         }
     }
@@ -132,7 +137,9 @@ public class MMDAnimManager {
             sub.put(cacheKey, anim);
             logger.info("加载动画 '{}' 成功，来源: {}", animName, loadedFrom);
         } else {
-            logger.warn("未找到动画文件: {}", animName);
+            if (warnedAnimations.add(animName)) {
+                logger.warn("未找到动画文件: {}", animName);
+            }
         }
         
         return anim;

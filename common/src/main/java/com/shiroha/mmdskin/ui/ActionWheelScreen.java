@@ -40,7 +40,7 @@ public class ActionWheelScreen extends Screen {
     private int outerRadius, innerRadius;                    // 动态计算的半径
 
     public ActionWheelScreen() {
-        super(Component.translatable("gui.skinlayers3d.action_wheel"));
+        super(Component.translatable("gui.mmdskin.action_wheel"));
         this.actionSlots = new ArrayList<>();
         initActionSlots();
     }

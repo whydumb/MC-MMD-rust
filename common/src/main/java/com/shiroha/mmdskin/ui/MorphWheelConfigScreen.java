@@ -52,7 +52,7 @@ public class MorphWheelConfigScreen extends Screen {
     private int hoveredRightIndex = -1;
 
     public MorphWheelConfigScreen(Screen parent) {
-        super(Component.translatable("gui.skinlayers3d.morph_config"));
+        super(Component.translatable("gui.mmdskin.morph_config"));
         this.parent = parent;
         loadData();
     }

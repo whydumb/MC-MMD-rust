@@ -1,14 +1,13 @@
 package com.shiroha.mmdskin;
 
 import java.io.File;
-import java.io.IOException;
-import java.net.URL;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.HashMap;
+import java.nio.file.StandardCopyOption;
 import net.minecraft.client.Minecraft;
-import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -19,15 +18,8 @@ public class NativeFunc {
     private static final boolean isAndroid = new File("/system/build.prop").exists();
     private static final boolean isLinux = System.getProperty("os.name").toLowerCase().contains("linux");
     private static final boolean isWindows = System.getProperty("os.name").toLowerCase().contains("windows");
+    private static final boolean isMacOS = System.getProperty("os.name").toLowerCase().contains("mac");
     static final String libraryVersion = "Rust-20260125";
-    private static final HashMap<runtimeUrlRes, String> urlMap = new HashMap<runtimeUrlRes, String>() {
-        {
-            put(runtimeUrlRes.windows, "https://github.com/shiroha-233/MC-MMD-rust/releases/download/" + libraryVersion + "/mmd_engine.dll");
-            put(runtimeUrlRes.linux, "https://github.com/shiroha-233/MC-MMD-rust/releases/download/" + libraryVersion + "/libmmd_engine.so");
-            put(runtimeUrlRes.android_arch64, "https://github.com.cnpmjs.org/asuka-mio/KAIMyEntitySaba/releases/download/crossplatform/KAIMyEntitySaba.so");
-            put(runtimeUrlRes.android_arch64_libc, "https://github.com.cnpmjs.org/asuka-mio/KAIMyEntitySaba/releases/download/crossplatform/libc++_shared.so");
-        }
-    };
     private static volatile NativeFunc inst;
     private static final Object lock = new Object();
 
@@ -53,74 +45,87 @@ public class NativeFunc {
         return inst;
     }
 
-    private void DownloadSingleFile(URL url, File file) throws IOException {
-        if (file.exists()) {
-            try {
-                System.load(file.getAbsolutePath());
-                return; //File exist and loadable
-            } catch (Error e) {
-                logger.info("\"" + file.getAbsolutePath() + "\" broken! Trying recover it!");
-            }
-        }
+    private File extractNativeLibrary(String resourcePath, String fileName) {
         try {
-            file.delete();
-            file.createNewFile();
-            FileUtils.copyURLToFile(url, file, 30000, 30000);
-            System.load(file.getAbsolutePath());
-        } catch (IOException e) {
-            file.delete();
-            logger.info("Download \"" + url.getPath() + "\" failed!");
-            logger.info("Cannot download runtime!");
-            logger.info("Check you internet connection and restart game!");
-            e.printStackTrace();
-            throw e;
-        }
-    }
-
-    private void DownloadRuntime() throws Exception {
-        if (isWindows) {
-            DownloadSingleFile(new URL(urlMap.get(runtimeUrlRes.windows)), new File(gameDirectory, "mmd_engine.dll"));
-        }
-        if (isLinux && !isAndroid) {
-            DownloadSingleFile(new URL(urlMap.get(runtimeUrlRes.linux)), new File(gameDirectory, "libmmd_engine.so"));
-        }
-        if (isLinux && isAndroid) {
-            DownloadSingleFile(new URL(urlMap.get(runtimeUrlRes.android_arch64_libc)), new File(RuntimePath, "libc++_shared.so"));
-            DownloadSingleFile(new URL(urlMap.get(runtimeUrlRes.android_arch64)), new File(RuntimePath, "KAIMyEntitySaba.so"));
+            InputStream is = NativeFunc.class.getResourceAsStream(resourcePath);
+            if (is == null) {
+                logger.warn("内置原生库未找到: " + resourcePath);
+                return null;
+            }
+            Path targetPath = Paths.get(gameDirectory, fileName);
+            File targetFile = targetPath.toFile();
+            if (targetFile.exists()) {
+                try {
+                    System.load(targetFile.getAbsolutePath());
+                    is.close();
+                    return targetFile;
+                } catch (Error e) {
+                    logger.info("已存在的库文件损坏，重新提取: " + fileName);
+                }
+            }
+            Files.copy(is, targetPath, StandardCopyOption.REPLACE_EXISTING);
+            is.close();
+            logger.info("已从模组内置资源提取原生库: " + fileName);
+            return targetFile;
+        } catch (Exception e) {
+            logger.error("提取原生库失败: " + resourcePath, e);
+            return null;
         }
     }
 
     private void LoadLibrary(File file) {
-        try {
-            System.load(file.getAbsolutePath());
-        } catch (Error e) {
-            logger.info("Runtime \"" + file.getAbsolutePath() + "\" not found, try download from github!");
-            throw e;
-        }
+        System.load(file.getAbsolutePath());
     }
 
     private void Init() {
-        try {
-            if (isWindows) {
-                logger.info("Win32 Env Detected!");
-                LoadLibrary(new File(gameDirectory, "mmd_engine.dll"));//WIN32
-            }
-            if (isLinux && !isAndroid) {
-                logger.info("Linux Env Detected!");
-                LoadLibrary(new File(gameDirectory, "libmmd_engine.so"));//Linux
-            }
-            if (isLinux && isAndroid) {
-                logger.info("Android Env Detected!");
-                LoadLibrary(new File(RuntimePath, "libc++_shared.so"));
-                LoadLibrary(new File(RuntimePath, "KAIMyEntitySaba.so"));//Android
-            }
-        } catch (Error e) {
+        String resourcePath;
+        String fileName;
+        
+        if (isWindows) {
+            logger.info("Windows Env Detected!");
+            resourcePath = "/natives/windows/mmd_engine.dll";
+            fileName = "mmd_engine.dll";
+        } else if (isMacOS) {
+            logger.info("macOS Env Detected!");
+            resourcePath = "/natives/macos/libmmd_engine.dylib";
+            fileName = "libmmd_engine.dylib";
+        } else if (isLinux && !isAndroid) {
+            logger.info("Linux Env Detected!");
+            resourcePath = "/natives/linux/libmmd_engine.so";
+            fileName = "libmmd_engine.so";
+        } else if (isLinux && isAndroid) {
+            logger.info("Android Env Detected!");
+            LoadLibrary(new File(RuntimePath, "libc++_shared.so"));
+            LoadLibrary(new File(RuntimePath, "KAIMyEntitySaba.so"));
+            return;
+        } else {
+            String osName = System.getProperty("os.name");
+            logger.error("不支持的操作系统: " + osName);
+            throw new UnsupportedOperationException("Unsupported OS: " + osName);
+        }
+        
+        File libFile = new File(gameDirectory, fileName);
+        
+        // 1. 尝试加载已存在的外部文件（用户可自行替换版本）
+        if (libFile.exists()) {
             try {
-                DownloadRuntime();
-            } catch (Exception ex) {
-                throw e;
+                LoadLibrary(libFile);
+                logger.info("已从游戏目录加载原生库: " + fileName);
+                return;
+            } catch (Error e) {
+                logger.warn("游戏目录的库文件损坏，尝试从内置资源提取...");
             }
         }
+        
+        // 2. 从模组内置资源提取
+        File extracted = extractNativeLibrary(resourcePath, fileName);
+        if (extracted != null) {
+            LoadLibrary(extracted);
+            return;
+        }
+        
+        // 3. 全部失败
+        throw new UnsatisfiedLinkError("无法加载原生库: " + fileName + "，请检查模组完整性或手动下载");
     }
 
     public native String GetVersion();
@@ -635,8 +640,4 @@ public class NativeFunc {
      * @param weight 权重值 (0.0-1.0)
      */
     public native void SetMorphWeight(long model, int index, float weight);
-
-    enum runtimeUrlRes {
-        windows, linux, android_arch64, android_arch64_libc
-    }
 }

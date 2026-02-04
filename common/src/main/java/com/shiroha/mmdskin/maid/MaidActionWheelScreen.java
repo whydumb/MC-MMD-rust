@@ -45,7 +45,7 @@ public class MaidActionWheelScreen extends Screen {
     private final String maidName;
 
     public MaidActionWheelScreen(UUID maidUUID, int maidEntityId, String maidName) {
-        super(Component.translatable("gui.skinlayers3d.maid_action_wheel"));
+        super(Component.translatable("gui.mmdskin.maid_action_wheel"));
         this.maidUUID = maidUUID;
         this.maidEntityId = maidEntityId;
         this.maidName = maidName;

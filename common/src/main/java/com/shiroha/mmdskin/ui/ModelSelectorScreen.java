@@ -1,5 +1,6 @@
 package com.shiroha.mmdskin.ui;
 
+import com.shiroha.mmdskin.config.UIConstants;
 import com.shiroha.mmdskin.renderer.model.ModelInfo;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -49,7 +50,7 @@ public class ModelSelectorScreen extends Screen {
     private int hoveredCardIndex = -1;
 
     public ModelSelectorScreen() {
-        super(Component.translatable("gui.skinlayers3d.model_selector"));
+        super(Component.translatable("gui.mmdskin.model_selector"));
         this.modelCards = new ArrayList<>();
         this.currentModel = ModelSelectorConfig.getInstance().getSelectedModel();
         loadAvailableModels();
@@ -62,7 +63,7 @@ public class ModelSelectorScreen extends Screen {
         modelCards.clear();
         
         // 添加默认选项（使用原版渲染）
-        modelCards.add(new ModelCardEntry("默认 (原版渲染)", null));
+        modelCards.add(new ModelCardEntry(UIConstants.DEFAULT_MODEL_NAME, null));
         
         // 使用 ModelInfo 扫描所有模型
         List<ModelInfo> models = ModelInfo.scanModels();
@@ -252,7 +253,7 @@ public class ModelSelectorScreen extends Screen {
             guiGraphics.drawString(this.font, details, textX + 32, detailY, COLOR_TEXT_SECONDARY);
         } else {
             // 默认选项
-            guiGraphics.drawString(this.font, "使用 Minecraft 原版玩家皮肤渲染", textX, detailY, COLOR_TEXT_SECONDARY);
+            guiGraphics.drawString(this.font, "使用原版玩家皮肤渲染", textX, detailY, COLOR_TEXT_SECONDARY);
         }
     }
 

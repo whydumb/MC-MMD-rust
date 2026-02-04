@@ -40,12 +40,12 @@ public class MmdSkinRegisterClient {
     static final Logger logger = LogManager.getLogger();
     
     // 主配置轮盘按键 (Alt，可自定义)
-    static KeyMapping keyConfigWheel = new KeyMapping("key.skinlayers3d.config_wheel", 
-        InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_LEFT_ALT, "key.categories.skinlayers3d");
+    static KeyMapping keyConfigWheel = new KeyMapping("key.mmdskin.config_wheel", 
+        InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_LEFT_ALT, "key.categories.mmdskin");
     
     // 女仆配置轮盘按键 (B，对着女仆时生效)
-    static KeyMapping keyMaidConfigWheel = new KeyMapping("key.skinlayers3d.maid_config_wheel", 
-        InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_B, "key.categories.skinlayers3d");
+    static KeyMapping keyMaidConfigWheel = new KeyMapping("key.mmdskin.maid_config_wheel", 
+        InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_B, "key.categories.mmdskin");
     
     // 追踪按键状态
     private static boolean configWheelKeyWasDown = false;
@@ -162,7 +162,7 @@ public class MmdSkinRegisterClient {
             });
         });
         
-        logger.info("SkinLayers3D 客户端注册完成");
+        logger.info("MMD Skin 客户端注册完成");
     }
 
     /**

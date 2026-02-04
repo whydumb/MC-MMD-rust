@@ -10,22 +10,22 @@ import java.nio.file.Path;
 
 /**
  * Forge 配置实现
- * 使用 JSON 格式，配置文件位于 config/skinlayers3d/config.json
+ * 使用 JSON 格式，配置文件位于 config/mmdskin/config.json
  * 与 Fabric 使用相同的配置格式
  */
-public final class SkinLayers3DConfig implements ConfigManager.IConfigProvider {
+public final class MmdSkinConfig implements ConfigManager.IConfigProvider {
     private static final Logger logger = LogManager.getLogger();
-    private static SkinLayers3DConfig instance;
+    private static MmdSkinConfig instance;
     private static ConfigData data;
     private static Path configPath;
     
-    private SkinLayers3DConfig() {
-        configPath = FMLPaths.CONFIGDIR.get().resolve("skinlayers3d");
+    private MmdSkinConfig() {
+        configPath = FMLPaths.CONFIGDIR.get().resolve("MmdSkin");
         data = ConfigData.load(configPath);
     }
     
     public static void init() {
-        instance = new SkinLayers3DConfig();
+        instance = new MmdSkinConfig();
         ConfigManager.init(instance);
         logger.info("Forge 配置系统初始化完成 (JSON)");
     }

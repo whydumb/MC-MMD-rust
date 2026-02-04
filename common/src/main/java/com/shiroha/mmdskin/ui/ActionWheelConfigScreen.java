@@ -52,7 +52,7 @@ public class ActionWheelConfigScreen extends Screen {
     private int hoveredRightIndex = -1;
 
     public ActionWheelConfigScreen(Screen parent) {
-        super(Component.translatable("gui.skinlayers3d.action_config"));
+        super(Component.translatable("gui.mmdskin.action_config"));
         this.parent = parent;
         loadData();
     }

@@ -1,5 +1,6 @@
 package com.shiroha.mmdskin.maid;
 
+import com.shiroha.mmdskin.config.UIConstants;
 import com.shiroha.mmdskin.renderer.animation.MMDAnimManager;
 import com.shiroha.mmdskin.renderer.core.IMMDModel;
 import com.shiroha.mmdskin.renderer.model.MMDModelManager;
@@ -39,7 +40,7 @@ public class MaidMMDModelManager {
      * @param modelName 模型名称（文件夹名）
      */
     public static void bindModel(UUID maidUUID, String modelName) {
-        if (modelName == null || modelName.isEmpty() || "默认 (原版渲染)".equals(modelName)) {
+        if (modelName == null || modelName.isEmpty() || UIConstants.DEFAULT_MODEL_NAME.equals(modelName)) {
             // 移除绑定
             unbindModel(maidUUID);
             return;

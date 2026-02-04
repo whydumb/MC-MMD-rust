@@ -2,7 +2,8 @@ package com.shiroha.mmdskin.ui;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import net.minecraft.client.Minecraft;
+import com.shiroha.mmdskin.config.PathConstants;
+import com.shiroha.mmdskin.config.UIConstants;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -22,7 +23,6 @@ import java.util.Map;
  */
 public class ModelSelectorConfig {
     private static final Logger logger = LogManager.getLogger();
-    private static final String CONFIG_FILE = "config/skinlayers3d/model_selector.json";
     private static ModelSelectorConfig instance;
     
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
@@ -45,15 +45,14 @@ public class ModelSelectorConfig {
      * 加载配置（带重试机制）
      */
     private void load() {
-        Minecraft mc = Minecraft.getInstance();
-        File configFile = new File(mc.gameDirectory, CONFIG_FILE);
+        File configFile = PathConstants.getModelSelectorConfigFile();
         
         if (configFile.exists()) {
             int retryCount = 0;
             int maxRetries = 3;
             
             while (retryCount < maxRetries) {
-                try (Reader reader = new FileReader(configFile)) {
+                try (Reader reader = new InputStreamReader(new FileInputStream(configFile), java.nio.charset.StandardCharsets.UTF_8)) {
                     data = gson.fromJson(reader, ConfigData.class);
                     
                     // 验证数据
@@ -90,19 +89,16 @@ public class ModelSelectorConfig {
             return;
         }
         
-        Minecraft mc = Minecraft.getInstance();
-        File configFile = new File(mc.gameDirectory, CONFIG_FILE);
+        File configFile = PathConstants.getModelSelectorConfigFile();
         
         // 确保目录存在
-        if (!configFile.getParentFile().exists()) {
-            configFile.getParentFile().mkdirs();
-        }
+        PathConstants.ensureDirectoryExists(configFile.getParentFile());
         
         int retryCount = 0;
         int maxRetries = 3;
         
         while (retryCount < maxRetries) {
-            try (Writer writer = new FileWriter(configFile)) {
+            try (Writer writer = new OutputStreamWriter(new FileOutputStream(configFile), java.nio.charset.StandardCharsets.UTF_8)) {
                 gson.toJson(data, writer);
                 lastSaveTime = currentTime;
                 logger.debug("模型选择配置保存成功");
@@ -122,11 +118,11 @@ public class ModelSelectorConfig {
      * 获取当前玩家选择的模型
      */
     public String getSelectedModel() {
-        Minecraft mc = Minecraft.getInstance();
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
         if (mc.player != null) {
             return getPlayerModel(mc.player.getName().getString());
         }
-        return "默认 (原版渲染)";
+        return UIConstants.DEFAULT_MODEL_NAME;
     }
     
     /**
@@ -134,16 +130,16 @@ public class ModelSelectorConfig {
      */
     public String getPlayerModel(String playerName) {
         if (playerName == null || playerName.isEmpty()) {
-            return "默认 (原版渲染)";
+            return UIConstants.DEFAULT_MODEL_NAME;
         }
-        return data.playerModels.getOrDefault(playerName, "默认 (原版渲染)");
+        return data.playerModels.getOrDefault(playerName, UIConstants.DEFAULT_MODEL_NAME);
     }
     
     /**
      * 设置当前玩家选择的模型
      */
     public void setSelectedModel(String modelName) {
-        Minecraft mc = Minecraft.getInstance();
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
         if (mc.player != null) {
             setPlayerModel(mc.player.getName().getString(), modelName);
         }
@@ -159,7 +155,7 @@ public class ModelSelectorConfig {
         }
         
         if (modelName == null) {
-            modelName = "默认 (原版渲染)";
+            modelName = UIConstants.DEFAULT_MODEL_NAME;
         }
         
         data.playerModels.put(playerName, modelName);

@@ -10,17 +10,17 @@ import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 
-@Mod(SkinLayers3D.MOD_ID)
-public class SkinLayers3DForge {
+@Mod(MmdSkin.MOD_ID)
+public class MmdSkinForge {
     public static final Logger logger = LogManager.getLogger();
 
-    public SkinLayers3DForge() {
+    public MmdSkinForge() {
         FMLJavaModLoadingContext.get().getModEventBus().addListener(this::preInit);
     }
 
     public void preInit(FMLCommonSetupEvent event) {
-        logger.info("SkinLayers3D 预初始化开始...");
-        SkinLayers3DRegisterCommon.Register();
-        logger.info("SkinLayers3D 预初始化成功");
+        logger.info("MMD Skin 预初始化开始...");
+        MmdSkinRegisterCommon.Register();
+        logger.info("MMD Skin 预初始化成功");
     }
 }

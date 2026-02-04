@@ -1,6 +1,6 @@
 package com.shiroha.mmdskin.renderer.animation;
 
-import net.minecraft.client.Minecraft;
+import com.shiroha.mmdskin.config.PathConstants;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -94,19 +94,17 @@ public class AnimationInfo {
      */
     public static List<AnimationInfo> scanAllAnimations() {
         List<AnimationInfo> animations = new ArrayList<>();
-        Minecraft mc = Minecraft.getInstance();
-        String gameDir = mc.gameDirectory.getAbsolutePath();
         
         // 1. 扫描默认动画目录
-        File defaultDir = new File(gameDir, "3d-skin/DefaultAnim");
+        File defaultDir = PathConstants.getDefaultAnimDir();
         animations.addAll(scanDirectory(defaultDir, AnimSource.DEFAULT, null));
         
         // 2. 扫描自定义动画目录
-        File customDir = new File(gameDir, "3d-skin/CustomAnim");
+        File customDir = PathConstants.getCustomAnimDir();
         animations.addAll(scanDirectory(customDir, AnimSource.CUSTOM, null));
         
         // 3. 扫描所有模型目录的动画
-        File entityPlayerDir = new File(gameDir, "3d-skin/EntityPlayer");
+        File entityPlayerDir = PathConstants.getEntityPlayerDir();
         if (entityPlayerDir.exists() && entityPlayerDir.isDirectory()) {
             File[] modelDirs = entityPlayerDir.listFiles(File::isDirectory);
             if (modelDirs != null) {
@@ -130,11 +128,9 @@ public class AnimationInfo {
      */
     public static List<AnimationInfo> scanCustomAnimations() {
         List<AnimationInfo> animations = new ArrayList<>();
-        Minecraft mc = Minecraft.getInstance();
-        String gameDir = mc.gameDirectory.getAbsolutePath();
         
         // 扫描自定义动画目录
-        File customDir = new File(gameDir, "3d-skin/CustomAnim");
+        File customDir = PathConstants.getCustomAnimDir();
         animations.addAll(scanDirectory(customDir, AnimSource.CUSTOM, null));
         
         // 按名称排序
@@ -149,21 +145,19 @@ public class AnimationInfo {
      */
     public static List<AnimationInfo> scanAnimationsForModel(String modelName) {
         List<AnimationInfo> animations = new ArrayList<>();
-        Minecraft mc = Minecraft.getInstance();
-        String gameDir = mc.gameDirectory.getAbsolutePath();
         
         // 1. 模型专属动画
         if (modelName != null && !modelName.isEmpty()) {
-            File modelDir = new File(gameDir, "3d-skin/EntityPlayer/" + modelName);
+            File modelDir = PathConstants.getModelDir(modelName);
             animations.addAll(scanDirectory(modelDir, AnimSource.MODEL, modelName));
         }
         
         // 2. 自定义动画
-        File customDir = new File(gameDir, "3d-skin/CustomAnim");
+        File customDir = PathConstants.getCustomAnimDir();
         animations.addAll(scanDirectory(customDir, AnimSource.CUSTOM, null));
         
         // 3. 默认动画
-        File defaultDir = new File(gameDir, "3d-skin/DefaultAnim");
+        File defaultDir = PathConstants.getDefaultAnimDir();
         animations.addAll(scanDirectory(defaultDir, AnimSource.DEFAULT, null));
         
         // 按来源和名称排序

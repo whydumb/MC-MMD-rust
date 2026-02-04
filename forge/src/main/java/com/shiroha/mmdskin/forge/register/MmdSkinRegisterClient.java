@@ -2,13 +2,13 @@ package com.shiroha.mmdskin.forge.register;
 
 import com.shiroha.mmdskin.MmdSkin;
 import com.shiroha.mmdskin.forge.config.ModConfigScreen;
-import com.shiroha.mmdskin.forge.network.SkinLayers3DNetworkPack;
+import com.shiroha.mmdskin.forge.network.MmdSkinNetworkPack;
 import com.shiroha.mmdskin.maid.MaidActionNetworkHandler;
 import com.shiroha.mmdskin.maid.MaidModelNetworkHandler;
 import com.shiroha.mmdskin.renderer.render.SkinLayersRenderFactory;
 import com.shiroha.mmdskin.ui.ActionWheelNetworkHandler;
 import com.shiroha.mmdskin.ui.ConfigWheelScreen;
-import com.shiroha.skinlayers3d.ui.MaidConfigWheelScreen;
+import com.shiroha.mmdskin.ui.MaidConfigWheelScreen;
 import com.mojang.blaze3d.platform.InputConstants;
 import java.io.File;
 import net.minecraft.client.Minecraft;
@@ -41,25 +41,25 @@ import org.lwjgl.glfw.GLFW;
  * - MOD 事件总线：按键注册、实体渲染器注册
  * - Forge 事件总线：按键输入处理、客户端 Tick
  */
-public class SkinLayers3DRegisterClient {
+public class MmdSkinRegisterClient {
     static final Logger logger = LogManager.getLogger();
     
     // 主配置轮盘按键 (Alt，可自定义)
     public static final KeyMapping keyConfigWheel = new KeyMapping(
-        "key.skinlayers3d.config_wheel", 
+        "key.mmdskin.config_wheel", 
         KeyConflictContext.IN_GAME, 
         InputConstants.Type.KEYSYM, 
         GLFW.GLFW_KEY_LEFT_ALT, 
-        "key.categories.skinlayers3d"
+        "key.categories.mmdskin"
     );
     
     // 女仆配置轮盘按键 (B，对着女仆时生效)
     public static final KeyMapping keyMaidConfigWheel = new KeyMapping(
-        "key.skinlayers3d.maid_config_wheel", 
+        "key.mmdskin.maid_config_wheel", 
         KeyConflictContext.IN_GAME, 
         InputConstants.Type.KEYSYM, 
         GLFW.GLFW_KEY_B, 
-        "key.categories.skinlayers3d"
+        "key.categories.mmdskin"
     );
     
     // 追踪按键状态
@@ -75,8 +75,8 @@ public class SkinLayers3DRegisterClient {
      */
     public static void Register() {
         // 注册到 MOD 事件总线（按键注册、实体渲染器注册）
-        FMLJavaModLoadingContext.get().getModEventBus().addListener(SkinLayers3DRegisterClient::onRegisterKeyMappings);
-        FMLJavaModLoadingContext.get().getModEventBus().addListener(SkinLayers3DRegisterClient::onRegisterEntityRenderers);
+        FMLJavaModLoadingContext.get().getModEventBus().addListener(MmdSkinRegisterClient::onRegisterKeyMappings);
+        FMLJavaModLoadingContext.get().getModEventBus().addListener(MmdSkinRegisterClient::onRegisterEntityRenderers);
         
         // 注册到 Forge 事件总线（按键输入、客户端 Tick）
         MinecraftForge.EVENT_BUS.register(ForgeEventHandler.class);
@@ -87,7 +87,7 @@ public class SkinLayers3DRegisterClient {
         // 注册网络发送器
         registerNetworkSenders();
         
-        logger.info("SkinLayers3D Forge 客户端注册完成");
+        logger.info("MMD Skin Forge 客户端注册完成");
     }
     
     /**
@@ -104,17 +104,17 @@ public class SkinLayers3DRegisterClient {
             LocalPlayer player = MCinstance.player;
             if (player != null) {
                 logger.info("发送动作到服务器: " + animId);
-                SkinLayers3DRegisterCommon.channel.sendToServer(
-                    new SkinLayers3DNetworkPack(1, player.getUUID(), animId));
+                MmdSkinRegisterCommon.channel.sendToServer(
+                    new MmdSkinNetworkPack(1, player.getUUID(), animId));
             }
         });
         
         // 注册模型选择网络发送器
-        com.shiroha.skinlayers3d.ui.ModelSelectorNetworkHandler.setNetworkSender(modelName -> {
+        com.shiroha.mmdskin.ui.ModelSelectorNetworkHandler.setNetworkSender(modelName -> {
             LocalPlayer player = MCinstance.player;
             if (player != null) {
-                SkinLayers3DRegisterCommon.channel.sendToServer(
-                    new SkinLayers3DNetworkPack(3, player.getUUID(), modelName.hashCode()));
+                MmdSkinRegisterCommon.channel.sendToServer(
+                    new MmdSkinNetworkPack(3, player.getUUID(), modelName.hashCode()));
             }
         });
         
@@ -122,8 +122,8 @@ public class SkinLayers3DRegisterClient {
         MaidModelNetworkHandler.setNetworkSender((entityId, modelName) -> {
             LocalPlayer player = MCinstance.player;
             if (player != null) {
-                SkinLayers3DRegisterCommon.channel.sendToServer(
-                    new SkinLayers3DNetworkPack(4, player.getUUID(), entityId, modelName));
+                MmdSkinRegisterCommon.channel.sendToServer(
+                    new MmdSkinNetworkPack(4, player.getUUID(), entityId, modelName));
             }
         });
         
@@ -132,8 +132,8 @@ public class SkinLayers3DRegisterClient {
             LocalPlayer player = MCinstance.player;
             if (player != null) {
                 logger.info("发送女仆动作到服务器: 实体={}, 动画={}", entityId, animId);
-                SkinLayers3DRegisterCommon.channel.sendToServer(
-                    new SkinLayers3DNetworkPack(5, player.getUUID(), entityId, animId));
+                MmdSkinRegisterCommon.channel.sendToServer(
+                    new MmdSkinNetworkPack(5, player.getUUID(), entityId, animId));
             }
         });
     }
@@ -181,7 +181,7 @@ public class SkinLayers3DRegisterClient {
     /**
      * Forge 事件处理器（注册到 Forge 事件总线）
      */
-    @Mod.EventBusSubscriber(value = Dist.CLIENT, modid = SkinLayers3D.MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE)
+    @Mod.EventBusSubscriber(value = Dist.CLIENT, modid = MmdSkin.MOD_ID, bus = Mod.EventBusSubscriber.Bus.FORGE)
     public static class ForgeEventHandler {
         
         /**

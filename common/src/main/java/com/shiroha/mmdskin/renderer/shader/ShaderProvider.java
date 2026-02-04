@@ -1,7 +1,8 @@
 package com.shiroha.mmdskin.renderer.shader;
 
+import com.shiroha.mmdskin.config.PathConstants;
+import java.io.File;
 import java.io.FileInputStream;
-import net.minecraft.client.Minecraft;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -10,12 +11,18 @@ import org.lwjgl.opengl.GL46C;
 public class ShaderProvider {
     private static boolean isInited = false;
     private static int program = 0;
-    private static final String vertexPath = Minecraft.getInstance().gameDirectory.getAbsolutePath() + "/3d-skin/Shader/MMDShader.vsh";
-    private static final String fragPath = Minecraft.getInstance().gameDirectory.getAbsolutePath() + "/3d-skin/Shader/MMDShader.fsh";
+    // 延迟初始化着色器路径
+    private static String vertexPath;
+    private static String fragPath;
     public static final Logger logger = LogManager.getLogger();
 
     public static void Init() {
         if (!isInited) {
+            // 初始化着色器路径
+            File shaderDir = PathConstants.getShaderDir();
+            vertexPath = new File(shaderDir, "MMDShader.vsh").getAbsolutePath();
+            fragPath = new File(shaderDir, "MMDShader.fsh").getAbsolutePath();
+            
             try {
                 int vertexShader = GL46C.glCreateShader(GL46C.GL_VERTEX_SHADER);
                 try (FileInputStream vertexSource = new FileInputStream(vertexPath)) {

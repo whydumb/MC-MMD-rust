@@ -1,6 +1,6 @@
 package com.shiroha.mmdskin.renderer.animation;
 
-import net.minecraft.client.Minecraft;
+import com.shiroha.mmdskin.config.PathConstants;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -94,21 +94,19 @@ public class MorphInfo {
      */
     public static List<MorphInfo> scanAllMorphs() {
         List<MorphInfo> morphs = new ArrayList<>();
-        Minecraft mc = Minecraft.getInstance();
-        String gameDir = mc.gameDirectory.getAbsolutePath();
         
         // 1. 扫描默认表情目录
-        File defaultDir = new File(gameDir, "3d-skin/DefaultMorph");
-        ensureDirectoryExists(defaultDir);
+        File defaultDir = PathConstants.getDefaultMorphDir();
+        PathConstants.ensureDirectoryExists(defaultDir);
         morphs.addAll(scanDirectory(defaultDir, MorphSource.DEFAULT, null));
         
         // 2. 扫描自定义表情目录
-        File customDir = new File(gameDir, "3d-skin/CustomMorph");
-        ensureDirectoryExists(customDir);
+        File customDir = PathConstants.getCustomMorphDir();
+        PathConstants.ensureDirectoryExists(customDir);
         morphs.addAll(scanDirectory(customDir, MorphSource.CUSTOM, null));
         
         // 3. 扫描所有模型目录的表情
-        File entityPlayerDir = new File(gameDir, "3d-skin/EntityPlayer");
+        File entityPlayerDir = PathConstants.getEntityPlayerDir();
         if (entityPlayerDir.exists() && entityPlayerDir.isDirectory()) {
             File[] modelDirs = entityPlayerDir.listFiles(File::isDirectory);
             if (modelDirs != null) {
@@ -132,12 +130,10 @@ public class MorphInfo {
      */
     public static List<MorphInfo> scanCustomMorphs() {
         List<MorphInfo> morphs = new ArrayList<>();
-        Minecraft mc = Minecraft.getInstance();
-        String gameDir = mc.gameDirectory.getAbsolutePath();
         
         // 扫描自定义表情目录
-        File customDir = new File(gameDir, "3d-skin/CustomMorph");
-        ensureDirectoryExists(customDir);
+        File customDir = PathConstants.getCustomMorphDir();
+        PathConstants.ensureDirectoryExists(customDir);
         morphs.addAll(scanDirectory(customDir, MorphSource.CUSTOM, null));
         
         // 按名称排序
@@ -152,21 +148,19 @@ public class MorphInfo {
      */
     public static List<MorphInfo> scanMorphsForModel(String modelName) {
         List<MorphInfo> morphs = new ArrayList<>();
-        Minecraft mc = Minecraft.getInstance();
-        String gameDir = mc.gameDirectory.getAbsolutePath();
         
         // 1. 模型专属表情
         if (modelName != null && !modelName.isEmpty()) {
-            File modelDir = new File(gameDir, "3d-skin/EntityPlayer/" + modelName);
+            File modelDir = PathConstants.getModelDir(modelName);
             morphs.addAll(scanDirectory(modelDir, MorphSource.MODEL, modelName));
         }
         
         // 2. 自定义表情
-        File customDir = new File(gameDir, "3d-skin/CustomMorph");
+        File customDir = PathConstants.getCustomMorphDir();
         morphs.addAll(scanDirectory(customDir, MorphSource.CUSTOM, null));
         
         // 3. 默认表情
-        File defaultDir = new File(gameDir, "3d-skin/DefaultMorph");
+        File defaultDir = PathConstants.getDefaultMorphDir();
         morphs.addAll(scanDirectory(defaultDir, MorphSource.DEFAULT, null));
         
         // 按来源和名称排序
@@ -216,16 +210,6 @@ public class MorphInfo {
         return morphs;
     }
     
-    /**
-     * 确保目录存在
-     */
-    private static void ensureDirectoryExists(File dir) {
-        if (!dir.exists()) {
-            if (dir.mkdirs()) {
-                logger.info("创建表情目录: {}", dir.getAbsolutePath());
-            }
-        }
-    }
     
     /**
      * 格式化显示名称
@@ -261,17 +245,15 @@ public class MorphInfo {
     /**
      * 获取默认表情目录
      */
-    public static String getDefaultMorphDir() {
-        Minecraft mc = Minecraft.getInstance();
-        return new File(mc.gameDirectory, "3d-skin/DefaultMorph").getAbsolutePath();
+    public static String getDefaultMorphDirPath() {
+        return PathConstants.getDefaultMorphDir().getAbsolutePath();
     }
     
     /**
      * 获取自定义表情目录
      */
-    public static String getCustomMorphDir() {
-        Minecraft mc = Minecraft.getInstance();
-        return new File(mc.gameDirectory, "3d-skin/CustomMorph").getAbsolutePath();
+    public static String getCustomMorphDirPath() {
+        return PathConstants.getCustomMorphDir().getAbsolutePath();
     }
     
     @Override

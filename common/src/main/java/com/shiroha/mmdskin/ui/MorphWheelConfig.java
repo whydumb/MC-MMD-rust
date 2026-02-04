@@ -3,8 +3,8 @@ package com.shiroha.mmdskin.ui;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
+import com.shiroha.mmdskin.config.PathConstants;
 import com.shiroha.mmdskin.renderer.animation.MorphInfo;
-import net.minecraft.client.Minecraft;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -20,7 +20,6 @@ import java.util.List;
  */
 public class MorphWheelConfig {
     private static final Logger logger = LogManager.getLogger();
-    private static final String CONFIG_FILE = "config/skinlayers3d/morph_wheel.json";
     private static final Gson gson = new GsonBuilder().setPrettyPrinting().create();
     
     private static MorphWheelConfig instance;
@@ -154,8 +153,7 @@ public class MorphWheelConfig {
      * 加载配置
      */
     public void load() {
-        Minecraft mc = Minecraft.getInstance();
-        File configFile = new File(mc.gameDirectory, CONFIG_FILE);
+        File configFile = PathConstants.getMorphWheelConfigFile();
         
         if (!configFile.exists()) {
             // 首次使用，扫描并全选
@@ -184,11 +182,10 @@ public class MorphWheelConfig {
      * 保存配置
      */
     public void save() {
-        Minecraft mc = Minecraft.getInstance();
-        File configFile = new File(mc.gameDirectory, CONFIG_FILE);
+        File configFile = PathConstants.getMorphWheelConfigFile();
         
         // 确保父目录存在
-        configFile.getParentFile().mkdirs();
+        PathConstants.ensureDirectoryExists(configFile.getParentFile());
         
         try (Writer writer = new OutputStreamWriter(new FileOutputStream(configFile), StandardCharsets.UTF_8)) {
             gson.toJson(displayedMorphs, writer);

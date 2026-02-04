@@ -17,7 +17,7 @@ import net.fabricmc.api.ClientModInitializer;
 public class MmdSkinFabricClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
-        MmdSkinClient.logger.info("SkinLayers3D Fabric 客户端初始化开始...");
+        MmdSkinClient.logger.info("MMD Skin Fabric 客户端初始化开始...");
         
         // 初始化配置系统
         MmdSkinConfig.init();
@@ -31,6 +31,6 @@ public class MmdSkinFabricClient implements ClientModInitializer {
         // 配置 MMD Shader
         MMDModelOpenGL.isMMDShaderEnabled = com.shiroha.mmdskin.config.ConfigManager.isMMDShaderEnabled();
         
-        MmdSkinClient.logger.info("SkinLayers3D Fabric 客户端初始化成功");
+        MmdSkinClient.logger.info("MMD Skin Fabric 客户端初始化成功");
     }
 }

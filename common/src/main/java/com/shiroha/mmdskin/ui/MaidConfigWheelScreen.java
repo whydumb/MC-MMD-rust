@@ -46,7 +46,7 @@ public class MaidConfigWheelScreen extends Screen {
     private final int monitoredKey;
     
     public MaidConfigWheelScreen(UUID maidUUID, int maidEntityId, String maidName, int keyCode) {
-        super(Component.translatable("gui.skinlayers3d.maid_config_wheel"));
+        super(Component.translatable("gui.mmdskin.maid_config_wheel"));
         this.maidUUID = maidUUID;
         this.maidEntityId = maidEntityId;
         this.maidName = maidName;
@@ -58,13 +58,13 @@ public class MaidConfigWheelScreen extends Screen {
     private void initConfigSlots() {
         // 三个配置入口
         configSlots.add(new ConfigSlot("model", 
-            Component.translatable("gui.skinlayers3d.maid.model_switch").getString(),
+            Component.translatable("gui.mmdskin.maid.model_switch").getString(),
             "🎭", this::openMaidModelSelector));
         configSlots.add(new ConfigSlot("action", 
-            Component.translatable("gui.skinlayers3d.maid.action_select").getString(),
+            Component.translatable("gui.mmdskin.maid.action_select").getString(),
             "🎬", this::openMaidActionWheel));
         configSlots.add(new ConfigSlot("material", 
-            Component.translatable("gui.skinlayers3d.maid.material_control").getString(),
+            Component.translatable("gui.mmdskin.maid.material_control").getString(),
             "👕", this::openMaidMaterialVisibility));
     }
 

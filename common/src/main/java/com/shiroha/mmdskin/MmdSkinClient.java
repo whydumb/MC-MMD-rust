@@ -1,5 +1,6 @@
 package com.shiroha.mmdskin;
 
+import com.shiroha.mmdskin.config.PathConstants;
 import com.shiroha.mmdskin.renderer.model.MMDModelManager;
 import com.shiroha.mmdskin.renderer.resource.MMDTextureManager;
 import com.shiroha.mmdskin.renderer.animation.MMDAnimManager;
@@ -11,10 +12,12 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GameRenderer;
 import org.apache.commons.io.FileUtils;
 import org.apache.logging.log4j.LogManager;
@@ -25,7 +28,6 @@ public class MmdSkinClient {
     public static final Logger logger = LogManager.getLogger();
     public static int usingMMDShader = 0;
     public static boolean reloadProperties = false;
-    static String gameDirectory = Minecraft.getInstance().gameDirectory.getAbsolutePath();
     static final int BUFFER = 512;
     static final long TOOBIG = 0x6400000; // Max size of unzipped data, 100MB
     static final int TOOMANY = 1024;      // Max number of files
@@ -33,6 +35,7 @@ public class MmdSkinClient {
 
     public static void initClient() {
         check3DSkinFolder();
+        extractDefaultAnimIfNeeded();
         MMDModelManager.Init();
         MMDTextureManager.Init();
         MMDAnimManager.Init();
@@ -45,10 +48,46 @@ public class MmdSkinClient {
      * 确保 EntityPlayer 目录结构存在
      */
     private static void ensureEntityPlayerDirectory() {
-        File entityPlayerDir = new File(gameDirectory, "3d-skin/EntityPlayer");
-        if (!entityPlayerDir.exists()) {
-            entityPlayerDir.mkdirs();
+        File entityPlayerDir = PathConstants.getEntityPlayerDir();
+        if (PathConstants.ensureDirectoryExists(entityPlayerDir)) {
             logger.info("创建 EntityPlayer 模型目录: " + entityPlayerDir.getAbsolutePath());
+        }
+    }
+    
+    /** 内置默认动画文件列表 */
+    private static final String[] DEFAULT_ANIM_FILES = {
+        "crawl.vmd", "die.vmd", "elytraFly.vmd", "idle.vmd",
+        "itemActive_minecraft.bow_Left_using.vmd", "itemActive_minecraft.iron_sword_Right_swinging.vmd",
+        "itemActive_minecraft.shield_Left_using.vmd", "itemActive_minecraft.shield_Right_using.vmd",
+        "lieDown.vmd", "onClimbable.vmd", "onClimbableDown.vmd", "onClimbableUp.vmd",
+        "onHorse.vmd", "ride.vmd", "sleep.vmd", "sneak.vmd",
+        "sprint.vmd", "swim.vmd", "swingLeft.vmd", "swingRight.vmd", "walk.vmd"
+    };
+    
+    /**
+     * 检查并提取内置默认动画到 3d-skin/DefaultAnim
+     */
+    private static void extractDefaultAnimIfNeeded() {
+        File defaultAnimDir = PathConstants.getDefaultAnimDir();
+        
+        // 如果目录不存在或为空，则提取内置动画
+        if (!defaultAnimDir.exists() || defaultAnimDir.list() == null || defaultAnimDir.list().length == 0) {
+            logger.info("DefaultAnim 目录缺失，从模组内置资源提取...");
+            PathConstants.ensureDirectoryExists(defaultAnimDir);
+            
+            int extracted = 0;
+            for (String fileName : DEFAULT_ANIM_FILES) {
+                try (InputStream is = MmdSkinClient.class.getResourceAsStream("/assets/mmdskin/default_anim/" + fileName)) {
+                    if (is != null) {
+                        File targetFile = new File(defaultAnimDir, fileName);
+                        Files.copy(is, targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                        extracted++;
+                    }
+                } catch (IOException e) {
+                    logger.warn("提取动画文件失败: " + fileName, e);
+                }
+            }
+            logger.info("已从模组内置资源提取 " + extracted + " 个默认动画文件");
         }
     }
 
@@ -112,18 +151,21 @@ public class MmdSkinClient {
     }
 
     private static void check3DSkinFolder(){
-        File skin3DFolder = new File(gameDirectory + "/3d-skin");
+        File skin3DFolder = PathConstants.getSkinRootDir();
         if (!skin3DFolder.exists()){
             logger.info("3d-skin folder not found, try download from github!");
             skin3DFolder.mkdir();
+            String gameDir = PathConstants.getGameDirectory();
             try{
-                FileUtils.copyURLToFile(new URL("https://github.com/Gengorou-C/3d-skin-C/releases/download/requiredFiles/3d-skin.zip"), new File(gameDirectory + "/3d-skin.zip"), 30000, 30000);
+                FileUtils.copyURLToFile(new URL(PathConstants.RESOURCE_DOWNLOAD_URL), 
+                    new File(gameDir, PathConstants.RESOURCE_ZIP_NAME), 30000, 30000);
             }catch (IOException e){
                 logger.info("Download 3d-skin.zip failed!");
             }
 
             try{
-                unzip(gameDirectory + "/3d-skin.zip", gameDirectory + "/3d-skin/");
+                unzip(gameDir + "/" + PathConstants.RESOURCE_ZIP_NAME, 
+                      PathConstants.getSkinRootPath() + "/");
             }catch (IOException e){
                 logger.info("extract 3d-skin.zip failed!");
             }

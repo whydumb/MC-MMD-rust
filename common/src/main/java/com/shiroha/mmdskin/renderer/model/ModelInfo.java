@@ -1,6 +1,6 @@
 package com.shiroha.mmdskin.renderer.model;
 
-import net.minecraft.client.Minecraft;
+import com.shiroha.mmdskin.config.PathConstants;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -67,8 +67,7 @@ public class ModelInfo {
      */
     public static List<ModelInfo> scanModels() {
         List<ModelInfo> models = new ArrayList<>();
-        Minecraft mc = Minecraft.getInstance();
-        File entityPlayerDir = new File(mc.gameDirectory, "3d-skin/EntityPlayer");
+        File entityPlayerDir = PathConstants.getEntityPlayerDir();
         
         if (!entityPlayerDir.exists() || !entityPlayerDir.isDirectory()) {
             logger.warn("EntityPlayer 目录不存在: " + entityPlayerDir.getAbsolutePath());

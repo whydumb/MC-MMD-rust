@@ -46,7 +46,7 @@ public class ConfigWheelScreen extends Screen {
     private static Supplier<Screen> modSettingsScreenFactory;
     
     public ConfigWheelScreen(int keyCode) {
-        super(Component.translatable("gui.skinlayers3d.config_wheel"));
+        super(Component.translatable("gui.mmdskin.config_wheel"));
         this.monitoredKey = keyCode;
         this.configSlots = new ArrayList<>();
         initConfigSlots();
@@ -62,19 +62,19 @@ public class ConfigWheelScreen extends Screen {
     private void initConfigSlots() {
         // 五个配置入口
         configSlots.add(new ConfigSlot("model", 
-            Component.translatable("gui.skinlayers3d.config.model_switch").getString(),
+            Component.translatable("gui.mmdskin.config.model_switch").getString(),
             "🎭", this::openModelSelector));
         configSlots.add(new ConfigSlot("action", 
-            Component.translatable("gui.skinlayers3d.config.action_select").getString(),
+            Component.translatable("gui.mmdskin.config.action_select").getString(),
             "🎬", this::openActionWheel));
         configSlots.add(new ConfigSlot("morph", 
-            Component.translatable("gui.skinlayers3d.config.morph_select").getString(),
+            Component.translatable("gui.mmdskin.config.morph_select").getString(),
             "😊", this::openMorphWheel));
         configSlots.add(new ConfigSlot("material", 
-            Component.translatable("gui.skinlayers3d.config.material_control").getString(),
+            Component.translatable("gui.mmdskin.config.material_control").getString(),
             "👕", this::openMaterialVisibility));
         configSlots.add(new ConfigSlot("settings", 
-            Component.translatable("gui.skinlayers3d.config.mod_settings").getString(),
+            Component.translatable("gui.mmdskin.config.mod_settings").getString(),
             "⚙", this::openModSettings));
     }
 
@@ -331,7 +331,7 @@ public class ConfigWheelScreen extends Screen {
         RenderSystem.disableBlend();
         
         // 中心文字
-        String text = selectedSlot >= 0 ? configSlots.get(selectedSlot).name : "SkinLayers3D";
+        String text = selectedSlot >= 0 ? configSlots.get(selectedSlot).name : "MMD Skin";
         int textWidth = this.font.width(text);
         guiGraphics.drawString(this.font, text, centerX - textWidth / 2 + 1, centerY - 3, TEXT_SHADOW, false);
         guiGraphics.drawString(this.font, text, centerX - textWidth / 2, centerY - 4, 0xFF60A0D0, false);
