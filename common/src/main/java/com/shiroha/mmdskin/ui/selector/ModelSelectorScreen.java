@@ -1,7 +1,9 @@
-package com.shiroha.mmdskin.ui;
+package com.shiroha.mmdskin.ui.selector;
 
 import com.shiroha.mmdskin.config.UIConstants;
 import com.shiroha.mmdskin.renderer.model.ModelInfo;
+import com.shiroha.mmdskin.ui.config.ModelSelectorConfig;
+import com.shiroha.mmdskin.ui.network.ModelSelectorNetworkHandler;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
@@ -32,16 +34,16 @@ public class ModelSelectorScreen extends Screen {
     private static final int FOOTER_HEIGHT = 50;
     
     // 颜色常量
-    private static final int COLOR_CARD_BG = 0x80000000;           // 半透明黑色
-    private static final int COLOR_CARD_SELECTED = 0x80006600;     // 半透明绿色
-    private static final int COLOR_CARD_HOVER = 0x80333333;        // 半透明灰色
-    private static final int COLOR_CARD_BORDER = 0xFF555555;       // 边框灰色
-    private static final int COLOR_CARD_BORDER_SELECTED = 0xFF00AA00; // 选中边框绿色
-    private static final int COLOR_TEXT_PRIMARY = 0xFFFFFF;        // 主文本白色
-    private static final int COLOR_TEXT_SECONDARY = 0xAAAAAA;      // 次级文本灰色
-    private static final int COLOR_TEXT_ACCENT = 0x55FF55;         // 强调文本绿色
-    private static final int COLOR_FORMAT_PMX = 0xFF6699FF;        // PMX 蓝色
-    private static final int COLOR_FORMAT_PMD = 0xFFFF9966;        // PMD 橙色
+    private static final int COLOR_CARD_BG = 0x80000000;
+    private static final int COLOR_CARD_SELECTED = 0x80006600;
+    private static final int COLOR_CARD_HOVER = 0x80333333;
+    private static final int COLOR_CARD_BORDER = 0xFF555555;
+    private static final int COLOR_CARD_BORDER_SELECTED = 0xFF00AA00;
+    private static final int COLOR_TEXT_PRIMARY = 0xFFFFFF;
+    private static final int COLOR_TEXT_SECONDARY = 0xAAAAAA;
+    private static final int COLOR_TEXT_ACCENT = 0x55FF55;
+    private static final int COLOR_FORMAT_PMX = 0xFF6699FF;
+    private static final int COLOR_FORMAT_PMD = 0xFFFF9966;
     
     private final List<ModelCardEntry> modelCards;
     private int scrollOffset = 0;
@@ -214,10 +216,10 @@ public class ModelSelectorScreen extends Screen {
         guiGraphics.fill(x, y, x + CARD_WIDTH, y + CARD_HEIGHT, bgColor);
         
         // 绘制边框
-        guiGraphics.fill(x, y, x + CARD_WIDTH, y + 1, borderColor);                    // 上
-        guiGraphics.fill(x, y + CARD_HEIGHT - 1, x + CARD_WIDTH, y + CARD_HEIGHT, borderColor); // 下
-        guiGraphics.fill(x, y, x + 1, y + CARD_HEIGHT, borderColor);                   // 左
-        guiGraphics.fill(x + CARD_WIDTH - 1, y, x + CARD_WIDTH, y + CARD_HEIGHT, borderColor); // 右
+        guiGraphics.fill(x, y, x + CARD_WIDTH, y + 1, borderColor);
+        guiGraphics.fill(x, y + CARD_HEIGHT - 1, x + CARD_WIDTH, y + CARD_HEIGHT, borderColor);
+        guiGraphics.fill(x, y, x + 1, y + CARD_HEIGHT, borderColor);
+        guiGraphics.fill(x + CARD_WIDTH - 1, y, x + CARD_WIDTH, y + CARD_HEIGHT, borderColor);
         
         // 文字内容
         int textX = x + 12;

@@ -4,6 +4,7 @@ import com.shiroha.mmdskin.NativeFunc;
 import com.shiroha.mmdskin.config.ConfigManager;
 import com.shiroha.mmdskin.renderer.core.EyeTrackingHelper;
 import com.shiroha.mmdskin.renderer.core.IMMDModel;
+import com.shiroha.mmdskin.renderer.core.IrisCompat;
 import com.shiroha.mmdskin.renderer.core.RenderContext;
 import com.shiroha.mmdskin.renderer.resource.MMDTextureManager;
 import com.shiroha.mmdskin.renderer.shader.SkinningComputeShader;
@@ -669,8 +670,23 @@ public class MMDModelGpuSkinning implements IMMDModel {
     
     /**
      * Toon 渲染模式（使用 ToonShaderCpu，蒙皮后的顶点数据来自 Compute Shader）
+     * 
+     * Iris 兼容：
+     *   Iris 激活时，先通过 ExtendedShader.apply() 绑定 G-buffer FBO + MRT draw buffers，
+     *   再切换到 Toon 着色器程序。Toon 片段着色器已声明 layout(location=0..3) 多输出，
+     *   确保 Iris 的 draw buffers 全部被写入合理数据，避免透明。
      */
     private void renderToon(Minecraft MCinstance, float lightIntensity, int blockLight, int skyLight, float skyDarken) {
+        
+        // Iris 兼容：绑定 Iris G-buffer FBO（如果 Iris 光影激活）
+        boolean irisActive = IrisCompat.isIrisShaderActive();
+        if (irisActive) {
+            ShaderInstance irisShader = RenderSystem.getShader();
+            if (irisShader != null) {
+                setUniforms(irisShader, currentDeliverStack);
+                irisShader.apply();  // 绑定 Iris G-buffer FBO + MRT draw buffers
+            }
+        }
         
         // ===== 第一遍：描边 =====
         if (toonConfig.isOutlineEnabled()) {

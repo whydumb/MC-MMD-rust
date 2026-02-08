@@ -4,6 +4,7 @@ import com.shiroha.mmdskin.MmdSkinClient;
 import com.shiroha.mmdskin.config.ConfigManager;
 import com.shiroha.mmdskin.renderer.core.EyeTrackingHelper;
 import com.shiroha.mmdskin.renderer.core.IMMDModel;
+import com.shiroha.mmdskin.renderer.core.IrisCompat;
 import com.shiroha.mmdskin.renderer.core.RenderContext;
 import com.shiroha.mmdskin.renderer.resource.MMDTextureManager;
 import com.shiroha.mmdskin.renderer.shader.ShaderProvider;
@@ -714,6 +715,11 @@ public class MMDModelOpenGL implements IMMDModel {
     /**
      * Toon 渲染模式（CPU 蒙皮版本）
      * 两遍渲染：1. 描边（背面扩张）2. 主体（卡通着色）
+     * 
+     * Iris 兼容：
+     *   Iris 激活时，先通过 ExtendedShader.apply() 绑定 G-buffer FBO + MRT draw buffers，
+     *   再切换到 Toon 着色器程序。Toon 片段着色器已声明 layout(location=0..3) 多输出，
+     *   确保 Iris 的 draw buffers 全部被写入合理数据，避免透明。
      */
     private void renderToon(Minecraft MCinstance, float lightIntensity, PoseStack deliverStack) {
         BufferUploader.reset();
@@ -722,6 +728,16 @@ public class MMDModelOpenGL implements IMMDModel {
         RenderSystem.enableDepthTest();
         RenderSystem.blendEquation(GL46C.GL_FUNC_ADD);
         RenderSystem.blendFunc(GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA);
+        
+        // Iris 兼容：绑定 Iris G-buffer FBO（如果 Iris 光影激活）
+        boolean irisActive = IrisCompat.isIrisShaderActive();
+        if (irisActive) {
+            ShaderInstance irisShader = RenderSystem.getShader();
+            if (irisShader != null) {
+                setUniforms(irisShader, deliverStack);
+                irisShader.apply();  // 绑定 Iris G-buffer FBO + MRT draw buffers
+            }
+        }
         
         // 获取蒙皮后的顶点数据（由 Rust 引擎计算）
         int posAndNorSize = vertexCount * 12;

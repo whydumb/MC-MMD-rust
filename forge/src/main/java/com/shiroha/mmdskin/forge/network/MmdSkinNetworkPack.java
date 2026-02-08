@@ -6,7 +6,7 @@ import java.util.function.Supplier;
 import com.shiroha.mmdskin.forge.register.MmdSkinRegisterCommon;
 import com.shiroha.mmdskin.maid.MaidMMDModelManager;
 import com.shiroha.mmdskin.renderer.render.MmdSkinRendererPlayerHelper;
-import com.shiroha.mmdskin.ui.PlayerModelSyncManager;
+import com.shiroha.mmdskin.ui.network.PlayerModelSyncManager;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.world.entity.Entity;

@@ -1,7 +1,8 @@
-package com.shiroha.mmdskin.ui;
+package com.shiroha.mmdskin.ui.selector;
 
 import com.shiroha.mmdskin.NativeFunc;
 import com.shiroha.mmdskin.renderer.model.MMDModelManager;
+import com.shiroha.mmdskin.ui.config.ModelSelectorConfig;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
@@ -32,16 +33,16 @@ public class MaterialVisibilityScreen extends Screen {
     private static final int TOGGLE_HEIGHT = 22;
     
     // 颜色常量 - 精致的配色方案
-    private static final int COLOR_BG_PANEL = 0xE0101820;           // 深蓝黑背景
-    private static final int COLOR_ITEM_BG = 0x80182028;            // 条目背景
-    private static final int COLOR_ITEM_HOVER = 0x80304050;         // 悬停背景
-    private static final int COLOR_BORDER = 0xFF3A4A5A;             // 边框颜色
-    private static final int COLOR_TEXT_PRIMARY = 0xFFFFFF;         // 主文本
-    private static final int COLOR_TEXT_SECONDARY = 0xFF8899AA;     // 次级文本
-    private static final int COLOR_TEXT_DIM = 0xFF556677;           // 暗淡文本
-    private static final int COLOR_TOGGLE_ON = 0xFF40C080;          // 开关开启
-    private static final int COLOR_TOGGLE_OFF = 0xFF505560;         // 开关关闭
-    private static final int COLOR_ACCENT = 0xFF60A0D0;             // 强调色
+    private static final int COLOR_BG_PANEL = 0xE0101820;
+    private static final int COLOR_ITEM_BG = 0x80182028;
+    private static final int COLOR_ITEM_HOVER = 0x80304050;
+    private static final int COLOR_BORDER = 0xFF3A4A5A;
+    private static final int COLOR_TEXT_PRIMARY = 0xFFFFFF;
+    private static final int COLOR_TEXT_SECONDARY = 0xFF8899AA;
+    private static final int COLOR_TEXT_DIM = 0xFF556677;
+    private static final int COLOR_TOGGLE_ON = 0xFF40C080;
+    private static final int COLOR_TOGGLE_OFF = 0xFF505560;
+    private static final int COLOR_ACCENT = 0xFF60A0D0;
     
     // 模型和材质数据
     private final long modelHandle;

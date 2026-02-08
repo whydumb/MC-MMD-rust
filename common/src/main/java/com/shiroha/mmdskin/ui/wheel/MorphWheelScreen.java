@@ -1,4 +1,4 @@
-package com.shiroha.mmdskin.ui;
+package com.shiroha.mmdskin.ui.wheel;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.*;
@@ -6,6 +6,10 @@ import com.shiroha.mmdskin.NativeFunc;
 import com.shiroha.mmdskin.config.PathConstants;
 import com.shiroha.mmdskin.config.UIConstants;
 import com.shiroha.mmdskin.renderer.model.MMDModelManager;
+import com.shiroha.mmdskin.ui.config.ModelSelectorConfig;
+import com.shiroha.mmdskin.ui.config.MorphWheelConfig;
+import com.shiroha.mmdskin.ui.config.MorphWheelConfigScreen;
+import com.shiroha.mmdskin.ui.network.MorphWheelNetworkHandler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;

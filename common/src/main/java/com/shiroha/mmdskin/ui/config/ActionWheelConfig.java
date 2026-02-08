@@ -1,4 +1,4 @@
-package com.shiroha.mmdskin.ui;
+package com.shiroha.mmdskin.ui.config;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;

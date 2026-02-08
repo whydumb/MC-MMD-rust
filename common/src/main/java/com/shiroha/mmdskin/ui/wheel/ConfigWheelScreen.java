@@ -1,7 +1,9 @@
-package com.shiroha.mmdskin.ui;
+package com.shiroha.mmdskin.ui.wheel;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.*;
+import com.shiroha.mmdskin.ui.selector.MaterialVisibilityScreen;
+import com.shiroha.mmdskin.ui.selector.ModelSelectorScreen;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
