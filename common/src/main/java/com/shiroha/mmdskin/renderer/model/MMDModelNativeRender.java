@@ -2,6 +2,7 @@ package com.shiroha.mmdskin.renderer.model;
 
 import com.shiroha.mmdskin.NativeFunc;
 import com.shiroha.mmdskin.renderer.core.IMMDModel;
+import com.shiroha.mmdskin.renderer.core.EyeTrackingHelper;
 import com.shiroha.mmdskin.renderer.core.RenderContext;
 import com.shiroha.mmdskin.renderer.resource.MMDTextureManager;
 
@@ -56,6 +57,9 @@ public class MMDModelNativeRender implements IMMDModel {
     
     // 材质
     Material[] mats;
+    
+    // 预分配临时对象（避免每帧分配）
+    private final Quaternionf tempQuat = new Quaternionf();
     
     // 时间追踪
     private long lastUpdateTime = -1;
@@ -146,6 +150,9 @@ public class MMDModelNativeRender implements IMMDModel {
             result.mats = mats;
             result.subMeshVertexBuffers = subMeshVertexBuffers;
             
+            // 启用自动眨眼
+            nf.SetAutoBlinkEnabled(model, true);
+            
             logger.info("原生渲染模型加载成功: 顶点={}, 索引={}, 子网格={}", vertexCount, idxCount, subMeshCount);
             return result;
             
@@ -211,6 +218,8 @@ public class MMDModelNativeRender implements IMMDModel {
         float bodyYaw = Mth.lerp(tickDelta, entityIn.yBodyRotO, entityIn.yBodyRot) * ((float) Math.PI / 180F);
         nf.SetModelPositionAndYaw(model, posX, posY, posZ, bodyYaw);
         
+        EyeTrackingHelper.updateEyeTracking(nf, model, entityIn, entityYaw, tickDelta);
+        
         Update();
         RenderModel(entityIn, entityYaw, entityPitch, entityTrans, poseStack, packedLight);
     }
@@ -240,8 +249,8 @@ public class MMDModelNativeRender implements IMMDModel {
         
         // 变换矩阵
         poseStack.pushPose();
-        poseStack.mulPose(new Quaternionf().rotateY(-entityYaw * ((float) Math.PI / 180F)));
-        poseStack.mulPose(new Quaternionf().rotateX(entityPitch * ((float) Math.PI / 180F)));
+        poseStack.mulPose(tempQuat.identity().rotateY(-entityYaw * ((float) Math.PI / 180F)));
+        poseStack.mulPose(tempQuat.identity().rotateX(entityPitch * ((float) Math.PI / 180F)));
         poseStack.translate(entityTrans.x, entityTrans.y, entityTrans.z);
         poseStack.scale(0.09f, 0.09f, 0.09f);
         

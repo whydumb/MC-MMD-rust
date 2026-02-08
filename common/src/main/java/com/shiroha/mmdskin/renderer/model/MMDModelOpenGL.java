@@ -86,7 +86,9 @@ public class MMDModelOpenGL implements IMMDModel {
     int indexType;
     Material[] mats;
     Material lightMapMaterial;
-    Vector3f light0Direction, light1Direction;
+    final Vector3f light0Direction = new Vector3f();
+    final Vector3f light1Direction = new Vector3f();
+    private final Quaternionf tempQuat = new Quaternionf();
     
     // 时间追踪（用于计算 deltaTime）
     private long lastUpdateTime = -1; // -1 表示未初始化
@@ -185,6 +187,7 @@ public class MMDModelOpenGL implements IMMDModel {
             lightMapMaterial.hasAlpha = mgrTex.hasAlpha;
         }else{
             lightMapMaterial.tex = GL46C.glGenTextures();
+            lightMapMaterial.ownsTexture = true;
             GL46C.glBindTexture(GL46C.GL_TEXTURE_2D, lightMapMaterial.tex);
             ByteBuffer texBuffer = ByteBuffer.allocateDirect(16*16*4);
             texBuffer.order(ByteOrder.LITTLE_ENDIAN);
@@ -273,6 +276,11 @@ public class MMDModelOpenGL implements IMMDModel {
         if (light1Buff != null) {
             MemoryUtil.memFree(light1Buff);
             light1Buff = null;
+        }
+        
+        // 释放自建的 lightMap 纹理（来自 MMDTextureManager 的不在此删除）
+        if (lightMapMaterial != null && lightMapMaterial.ownsTexture && lightMapMaterial.tex > 0) {
+            GL46C.glDeleteTextures(lightMapMaterial.tex);
         }
         
         // 删除 OpenGL 资源
@@ -391,15 +399,14 @@ public class MMDModelOpenGL implements IMMDModel {
         float minBrightness = 0.1f;
         lightIntensity = minBrightness + lightIntensity * (1.0f - minBrightness);
         
-        light0Direction = new Vector3f(1.0f, 0.75f, 0.0f);
-        light1Direction = new Vector3f(-1.0f, 0.75f, 0.0f);
-        light0Direction.normalize();
-        light1Direction.normalize();
-        light0Direction.rotate(new Quaternionf().rotateY(entityYaw*((float)Math.PI / 180F)));
-        light1Direction.rotate(new Quaternionf().rotateY(entityYaw*((float)Math.PI / 180F)));
+        light0Direction.set(1.0f, 0.75f, 0.0f).normalize();
+        light1Direction.set(-1.0f, 0.75f, 0.0f).normalize();
+        float yawRad = entityYaw * ((float)Math.PI / 180F);
+        light0Direction.rotate(tempQuat.identity().rotateY(yawRad));
+        light1Direction.rotate(tempQuat.identity().rotateY(yawRad));
 
-        deliverStack.mulPose(new Quaternionf().rotateY(-entityYaw*((float)Math.PI / 180F)));
-        deliverStack.mulPose(new Quaternionf().rotateX(entityPitch*((float)Math.PI / 180F)));
+        deliverStack.mulPose(tempQuat.identity().rotateY(-yawRad));
+        deliverStack.mulPose(tempQuat.identity().rotateX(entityPitch*((float)Math.PI / 180F)));
         deliverStack.translate(entityTrans.x, entityTrans.y, entityTrans.z);
         deliverStack.scale(0.09f, 0.09f, 0.09f);
         
@@ -875,10 +882,12 @@ public class MMDModelOpenGL implements IMMDModel {
     static class Material {
         int tex;
         boolean hasAlpha;
+        boolean ownsTexture;
 
         Material() {
             tex = 0;
             hasAlpha = false;
+            ownsTexture = false;
         }
     }
 

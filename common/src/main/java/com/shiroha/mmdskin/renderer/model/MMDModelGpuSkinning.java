@@ -78,6 +78,9 @@ public class MMDModelGpuSkinning implements IMMDModel {
     private int skinnedPositionsBuffer;
     private int skinnedNormalsBuffer;
     
+    // 骨骼矩阵 SSBO（每实例独立，避免多模型数据冲突）
+    private int boneMatrixSSBO = 0;
+    
     // 缓冲区（allocateDirect 分配，由 GC 回收）
     @SuppressWarnings("unused")
     private ByteBuffer posBuffer;
@@ -92,8 +95,6 @@ public class MMDModelGpuSkinning implements IMMDModel {
     private FloatBuffer boneMatricesBuffer;
     private FloatBuffer modelViewMatBuff;
     private FloatBuffer projMatBuff;
-    private FloatBuffer light0Buff;
-    private FloatBuffer light1Buff;
     
     // 预分配的骨骼矩阵复制缓冲区（避免每帧 allocateDirect）
     private ByteBuffer boneMatricesByteBuffer;
@@ -112,8 +113,10 @@ public class MMDModelGpuSkinning implements IMMDModel {
     private Material[] mats;
     private Material lightMapMaterial;
     
-    // 光照方向
-    private Vector3f light0Direction, light1Direction;
+    // 光照方向（预分配复用）
+    private final Vector3f light0Direction = new Vector3f();
+    private final Vector3f light1Direction = new Vector3f();
+    private final Quaternionf tempQuat = new Quaternionf();
     
     // 着色器属性位置（每帧根据当前着色器更新）
     private int shaderProgram;
@@ -334,6 +337,9 @@ public class MMDModelGpuSkinning implements IMMDModel {
         // 创建 Compute Shader 输出缓冲区（每实例独立，双重用途：SSBO + VBO）
         int[] outputBuffers = SkinningComputeShader.createOutputBuffers(vertexCount);
         
+        // 创建骨骼矩阵 SSBO（每实例独立）
+        int boneMatrixSSBO = SkinningComputeShader.createBoneMatrixBuffer();
+        
         // 构建结果
         MMDModelGpuSkinning result = new MMDModelGpuSkinning();
         result.model = model;
@@ -351,6 +357,7 @@ public class MMDModelGpuSkinning implements IMMDModel {
         result.uv2BufferObject = uv2Vbo;
         result.skinnedPositionsBuffer = outputBuffers[0];
         result.skinnedNormalsBuffer = outputBuffers[1];
+        result.boneMatrixSSBO = boneMatrixSSBO;
         result.posBuffer = posBuffer;
         result.norBuffer = norBuffer;
         result.uv0Buffer = uv0Buffer;
@@ -365,8 +372,6 @@ public class MMDModelGpuSkinning implements IMMDModel {
         result.lightMapMaterial = lightMapMaterial;
         result.modelViewMatBuff = MemoryUtil.memAllocFloat(16);
         result.projMatBuff = MemoryUtil.memAllocFloat(16);
-        result.light0Buff = MemoryUtil.memAllocFloat(3);
-        result.light1Buff = MemoryUtil.memAllocFloat(3);
         result.initialized = true;
         
         // 初始化 Morph 数据
@@ -466,16 +471,15 @@ public class MMDModelGpuSkinning implements IMMDModel {
         float lightIntensity = Math.max(blockLightFactor, skyLightFactor);
         lightIntensity = 0.1f + lightIntensity * 0.9f;
         
-        light0Direction = new Vector3f(1.0f, 0.75f, 0.0f);
-        light1Direction = new Vector3f(-1.0f, 0.75f, 0.0f);
-        light0Direction.normalize();
-        light1Direction.normalize();
-        light0Direction.rotate(new Quaternionf().rotateY(entityYaw * ((float) Math.PI / 180F)));
-        light1Direction.rotate(new Quaternionf().rotateY(entityYaw * ((float) Math.PI / 180F)));
+        light0Direction.set(1.0f, 0.75f, 0.0f).normalize();
+        light1Direction.set(-1.0f, 0.75f, 0.0f).normalize();
+        float yawRad = entityYaw * ((float) Math.PI / 180F);
+        light0Direction.rotate(tempQuat.identity().rotateY(yawRad));
+        light1Direction.rotate(tempQuat.identity().rotateY(yawRad));
         
         // 变换
-        deliverStack.mulPose(new Quaternionf().rotateY(-entityYaw * ((float) Math.PI / 180F)));
-        deliverStack.mulPose(new Quaternionf().rotateX(entityPitch * ((float) Math.PI / 180F)));
+        deliverStack.mulPose(tempQuat.identity().rotateY(-yawRad));
+        deliverStack.mulPose(tempQuat.identity().rotateX(entityPitch * ((float) Math.PI / 180F)));
         deliverStack.translate(entityTrans.x, entityTrans.y, entityTrans.z);
         deliverStack.scale(0.09f, 0.09f, 0.09f);
         
@@ -489,6 +493,7 @@ public class MMDModelGpuSkinning implements IMMDModel {
             positionBufferObject, normalBufferObject,
             boneIndicesBufferObject, boneWeightsBufferObject,
             skinnedPositionsBuffer, skinnedNormalsBuffer,
+            boneMatrixSSBO,
             morphOffsetsSSBO, morphWeightsSSBO,
             vertexCount, vertexMorphCount
         );
@@ -809,7 +814,7 @@ public class MMDModelGpuSkinning implements IMMDModel {
         }
         boneMatricesBuffer.flip();
         
-        computeShader.uploadBoneMatrices(boneMatricesBuffer, copiedBones);
+        computeShader.uploadBoneMatrices(boneMatrixSSBO, boneMatricesBuffer, copiedBones);
     }
     
     /**
@@ -956,7 +961,8 @@ public class MMDModelGpuSkinning implements IMMDModel {
         GL46C.glDeleteBuffers(skinnedPositionsBuffer);
         GL46C.glDeleteBuffers(skinnedNormalsBuffer);
         
-        // 释放 Morph SSBO（每实例独立）
+        // 释放每实例 SSBO
+        if (boneMatrixSSBO > 0) GL46C.glDeleteBuffers(boneMatrixSSBO);
         if (morphOffsetsSSBO > 0) GL46C.glDeleteBuffers(morphOffsetsSSBO);
         if (morphWeightsSSBO > 0) GL46C.glDeleteBuffers(morphWeightsSSBO);
         
@@ -970,8 +976,6 @@ public class MMDModelGpuSkinning implements IMMDModel {
         if (morphWeightsBuffer != null) MemoryUtil.memFree(morphWeightsBuffer);
         if (modelViewMatBuff != null) MemoryUtil.memFree(modelViewMatBuff);
         if (projMatBuff != null) MemoryUtil.memFree(projMatBuff);
-        if (light0Buff != null) MemoryUtil.memFree(light0Buff);
-        if (light1Buff != null) MemoryUtil.memFree(light1Buff);
     }
     
     /** @deprecated 使用 {@link #dispose()} 替代 */

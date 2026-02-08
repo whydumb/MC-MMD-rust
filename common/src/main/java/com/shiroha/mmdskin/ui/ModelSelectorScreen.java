@@ -118,7 +118,6 @@ public class ModelSelectorScreen extends Screen {
     private void selectModel(ModelCardEntry card) {
         this.currentModel = card.displayName;
         ModelSelectorConfig.getInstance().setSelectedModel(card.displayName);
-        ModelSelectorConfig.getInstance().save();
         
         // 通知服务器模型变更
         ModelSelectorNetworkHandler.sendModelChangeToServer(card.displayName);
