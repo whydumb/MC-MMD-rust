@@ -561,6 +561,29 @@ public class NativeFunc {
     public native long LoadAnimation(long model, String filename);
 
     public native void DeleteAnimation(long anim);
+    
+    /**
+     * 查询动画是否包含相机数据
+     * @param anim 动画句柄
+     * @return 是否包含相机数据
+     */
+    public native boolean HasCameraData(long anim);
+    
+    /**
+     * 获取动画最大帧数（包含相机轨道）
+     * @param anim 动画句柄
+     * @return 最大帧数
+     */
+    public native float GetAnimMaxFrame(long anim);
+    
+    /**
+     * 获取相机变换数据，写入 ByteBuffer (32 字节)
+     * 布局: pos_x, pos_y, pos_z (3×f32) + rot_x, rot_y, rot_z (3×f32) + fov (f32) + is_perspective (i32)
+     * @param anim 动画句柄
+     * @param frame 浮点帧数
+     * @param buffer 目标 DirectByteBuffer (至少 32 字节)
+     */
+    public native void GetCameraTransform(long anim, float frame, ByteBuffer buffer);
 
     public native void SetHeadAngle(long model, float x, float y, float z, boolean flag);
     

@@ -734,6 +734,71 @@ pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_DeleteAnimation(
     animations.remove(&anim);
 }
 
+/// 查询动画是否包含相机数据
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_HasCameraData(
+    _env: JNIEnv,
+    _class: JClass,
+    anim: jlong,
+) -> jboolean {
+    let animations = ANIMATIONS.read().unwrap();
+    if let Some(animation) = animations.get(&anim) {
+        if animation.has_camera() { 1u8 } else { 0u8 }
+    } else {
+        0u8
+    }
+}
+
+/// 获取动画最大帧数（包含相机轨道）
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_GetAnimMaxFrame(
+    _env: JNIEnv,
+    _class: JClass,
+    anim: jlong,
+) -> jfloat {
+    let animations = ANIMATIONS.read().unwrap();
+    if let Some(animation) = animations.get(&anim) {
+        animation.max_frame() as jfloat
+    } else {
+        0.0
+    }
+}
+
+/// 获取相机变换数据，写入 ByteBuffer
+/// 布局: pos_x, pos_y, pos_z (3×f32) + rot_x, rot_y, rot_z (3×f32) + fov (f32) + is_perspective (i32) = 32 字节
+#[no_mangle]
+pub extern "system" fn Java_com_shiroha_mmdskin_NativeFunc_GetCameraTransform(
+    env: JNIEnv,
+    _class: JClass,
+    anim: jlong,
+    frame: jfloat,
+    buffer: JByteBuffer,
+) {
+    let animations = ANIMATIONS.read().unwrap();
+    if let Some(animation) = animations.get(&anim) {
+        let transform = animation.get_camera_transform(frame);
+        
+        if let Ok(dst) = env.get_direct_buffer_address(&buffer) {
+            unsafe {
+                let ptr = dst as *mut f32;
+                // position (3 × f32)
+                *ptr.add(0) = transform.position.x;
+                *ptr.add(1) = transform.position.y;
+                *ptr.add(2) = transform.position.z;
+                // rotation (3 × f32, 欧拉角弧度)
+                *ptr.add(3) = transform.rotation.x;
+                *ptr.add(4) = transform.rotation.y;
+                *ptr.add(5) = transform.rotation.z;
+                // fov (f32)
+                *ptr.add(6) = transform.fov;
+                // is_perspective (i32, 0/1)
+                let i_ptr = ptr.add(7) as *mut i32;
+                *i_ptr = if transform.is_perspective { 1 } else { 0 };
+            }
+        }
+    }
+}
+
 /// 设置模型全局变换（用于人物移动时传递位置给物理系统）
 /// 传入 4x4 矩阵的 16 个 float 值（列主序）
 #[no_mangle]
