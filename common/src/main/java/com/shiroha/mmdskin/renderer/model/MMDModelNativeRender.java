@@ -40,6 +40,7 @@ public class MMDModelNativeRender implements IMMDModel {
     // 模型数据
     long model;
     String modelDir;
+    private String cachedModelName;
     int vertexCount;
     
     // 顶点缓冲区（从 Rust 引擎获取蒙皮后的数据）
@@ -218,7 +219,7 @@ public class MMDModelNativeRender implements IMMDModel {
         float bodyYaw = Mth.lerp(tickDelta, entityIn.yBodyRotO, entityIn.yBodyRot) * ((float) Math.PI / 180F);
         nf.SetModelPositionAndYaw(model, posX, posY, posZ, bodyYaw);
         
-        EyeTrackingHelper.updateEyeTracking(nf, model, entityIn, entityYaw, tickDelta);
+        EyeTrackingHelper.updateEyeTracking(nf, model, entityIn, entityYaw, tickDelta, getModelName());
         
         Update();
         RenderModel(entityIn, entityYaw, entityPitch, entityTrans, poseStack, packedLight);
@@ -252,7 +253,8 @@ public class MMDModelNativeRender implements IMMDModel {
         poseStack.mulPose(tempQuat.identity().rotateY(-entityYaw * ((float) Math.PI / 180F)));
         poseStack.mulPose(tempQuat.identity().rotateX(entityPitch * ((float) Math.PI / 180F)));
         poseStack.translate(entityTrans.x, entityTrans.y, entityTrans.z);
-        poseStack.scale(0.09f, 0.09f, 0.09f);
+        float baseScale = 0.09f * com.shiroha.mmdskin.config.ModelConfigManager.getConfig(getModelName()).modelScale;
+        poseStack.scale(baseScale, baseScale, baseScale);
         
         // 从 Rust 引擎获取蒙皮后的顶点数据
         int posSize = vertexCount * 12;
@@ -393,6 +395,14 @@ public class MMDModelNativeRender implements IMMDModel {
     @Override
     public String GetModelDir() {
         return modelDir;
+    }
+    
+    @Override
+    public String getModelName() {
+        if (cachedModelName == null) {
+            cachedModelName = IMMDModel.super.getModelName();
+        }
+        return cachedModelName;
     }
     
     // 内部材质类

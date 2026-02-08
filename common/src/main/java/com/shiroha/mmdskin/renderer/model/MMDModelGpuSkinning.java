@@ -57,6 +57,7 @@ public class MMDModelGpuSkinning implements IMMDModel {
     // 模型数据
     private long model;
     private String modelDir;
+    private String cachedModelName;
     private int vertexCount;
     
     // OpenGL 资源 - VAO
@@ -134,7 +135,6 @@ public class MMDModelGpuSkinning implements IMMDModel {
     // 时间追踪
     private long lastUpdateTime = -1;
     private static final float MAX_DELTA_TIME = 0.05f;
-    private static final float MIN_DELTA_TIME = 0.001f;
     
     private boolean initialized = false;
     
@@ -168,233 +168,295 @@ public class MMDModelGpuSkinning implements IMMDModel {
             return null;
         }
         
-        // 初始化 GPU 蒙皮数据
-        nf.InitGpuSkinningData(model);
+        // 资源追踪变量（用于异常时清理）
+        int vao = 0, indexVbo = 0, posVbo = 0, norVbo = 0, uv0Vbo = 0;
+        int boneIdxVbo = 0, boneWgtVbo = 0, colorVbo = 0, uv1Vbo = 0, uv2Vbo = 0;
+        int[] outputBuffers = null;
+        int boneMatrixSSBO = 0;
+        int[] morphBuffers = null;
+        FloatBuffer boneMatricesBuffer = null;
+        ByteBuffer boneMatricesByteBuffer = null;
+        FloatBuffer modelViewMatBuff = null;
+        FloatBuffer projMatBuff = null;
+        FloatBuffer morphWeightsBuffer = null;
+        Material lightMapMaterial = null;
         
-        BufferUploader.reset();
-        
-        int vertexCount = (int) nf.GetVertexCount(model);
-        int boneCount = nf.GetBoneCount(model);
-        
-        if (boneCount > SkinningComputeShader.MAX_BONES) {
-            logger.warn("模型骨骼数量 ({}) 超过最大支持 ({})，部分骨骼可能无法正确渲染", 
-                boneCount, SkinningComputeShader.MAX_BONES);
-        }
-        logger.info("GPU 蒙皮模型加载（Compute Shader）: {} 顶点, {} 骨骼", vertexCount, boneCount);
-        
-        // 创建 VAO 和 VBO
-        int vao = GL46C.glGenVertexArrays();
-        int indexVbo = GL46C.glGenBuffers();
-        int posVbo = GL46C.glGenBuffers();
-        int norVbo = GL46C.glGenBuffers();
-        int uv0Vbo = GL46C.glGenBuffers();
-        int boneIdxVbo = GL46C.glGenBuffers();
-        int boneWgtVbo = GL46C.glGenBuffers();
-        int colorVbo = GL46C.glGenBuffers();
-        int uv1Vbo = GL46C.glGenBuffers();
-        int uv2Vbo = GL46C.glGenBuffers();
-        
-        GL46C.glBindVertexArray(vao);
-        
-        // 索引缓冲区
-        int indexElementSize = (int) nf.GetIndexElementSize(model);
-        int indexCount = (int) nf.GetIndexCount(model);
-        int indexSize = indexCount * indexElementSize;
-        long indexData = nf.GetIndices(model);
-        ByteBuffer indexBuffer = ByteBuffer.allocateDirect(indexSize);
-        for (int i = 0; i < indexSize; ++i) {
-            indexBuffer.put(nf.ReadByte(indexData, i));
-        }
-        indexBuffer.position(0);
-        GL46C.glBindBuffer(GL46C.GL_ELEMENT_ARRAY_BUFFER, indexVbo);
-        GL46C.glBufferData(GL46C.GL_ELEMENT_ARRAY_BUFFER, indexBuffer, GL46C.GL_STATIC_DRAW);
-        
-        int indexType = switch (indexElementSize) {
-            case 1 -> GL46C.GL_UNSIGNED_BYTE;
-            case 2 -> GL46C.GL_UNSIGNED_SHORT;
-            case 4 -> GL46C.GL_UNSIGNED_INT;
-            default -> 0;
-        };
-        
-        // 原始顶点位置（静态，用于 Compute Shader 输入）
-        ByteBuffer posBuffer = ByteBuffer.allocateDirect(vertexCount * 12);
-        posBuffer.order(ByteOrder.LITTLE_ENDIAN);
-        int copiedPos = nf.CopyOriginalPositionsToBuffer(model, posBuffer, vertexCount);
-        if (copiedPos == 0) {
-            logger.warn("原始顶点位置数据复制失败");
-        }
-        GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, posVbo);
-        GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, posBuffer, GL46C.GL_STATIC_DRAW);
-        
-        // 原始法线（静态）
-        ByteBuffer norBuffer = ByteBuffer.allocateDirect(vertexCount * 12);
-        norBuffer.order(ByteOrder.LITTLE_ENDIAN);
-        int copiedNor = nf.CopyOriginalNormalsToBuffer(model, norBuffer, vertexCount);
-        if (copiedNor == 0) {
-            logger.warn("原始法线数据复制失败");
-        }
-        GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, norVbo);
-        GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, norBuffer, GL46C.GL_STATIC_DRAW);
-        
-        // UV（静态）
-        ByteBuffer uv0Buffer = ByteBuffer.allocateDirect(vertexCount * 8);
-        uv0Buffer.order(ByteOrder.LITTLE_ENDIAN);
-        long uvData = nf.GetUVs(model);
-        nf.CopyDataToByteBuffer(uv0Buffer, uvData, vertexCount * 8);
-        GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, uv0Vbo);
-        GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, uv0Buffer, GL46C.GL_STATIC_DRAW);
-        
-        // 骨骼索引（静态，ivec4）
-        ByteBuffer boneIndicesByteBuffer = ByteBuffer.allocateDirect(vertexCount * 16);
-        boneIndicesByteBuffer.order(ByteOrder.LITTLE_ENDIAN);
-        int copiedIdx = nf.CopyBoneIndicesToBuffer(model, boneIndicesByteBuffer, vertexCount);
-        if (copiedIdx == 0) {
-            logger.warn("骨骼索引数据复制失败");
-        }
-        IntBuffer boneIndicesBuffer = boneIndicesByteBuffer.asIntBuffer();
-        GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, boneIdxVbo);
-        GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, boneIndicesBuffer, GL46C.GL_STATIC_DRAW);
-        
-        // 骨骼权重（静态，vec4）
-        ByteBuffer boneWeightsByteBuffer = ByteBuffer.allocateDirect(vertexCount * 16);
-        boneWeightsByteBuffer.order(ByteOrder.LITTLE_ENDIAN);
-        int copiedWgt = nf.CopyBoneWeightsToBuffer(model, boneWeightsByteBuffer, vertexCount);
-        if (copiedWgt == 0) {
-            logger.warn("骨骼权重数据复制失败");
-        }
-        FloatBuffer boneWeightsBuffer = boneWeightsByteBuffer.asFloatBuffer();
-        GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, boneWgtVbo);
-        GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, boneWeightsBuffer, GL46C.GL_STATIC_DRAW);
-        
-        // 顶点颜色缓冲区（Minecraft 标准属性：白色 + 全不透明）
-        ByteBuffer colorBuffer = ByteBuffer.allocateDirect(vertexCount * 16);
-        colorBuffer.order(ByteOrder.LITTLE_ENDIAN);
-        
-        // UV1 缓冲区（overlay）— 静态数据，创建时即上传到 GPU
-        ByteBuffer uv1Buffer = ByteBuffer.allocateDirect(vertexCount * 8);
-        uv1Buffer.order(ByteOrder.LITTLE_ENDIAN);
-        for (int i = 0; i < vertexCount; i++) {
-            uv1Buffer.putInt(15);
-            uv1Buffer.putInt(15);
-        }
-        uv1Buffer.flip();
-        GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, uv1Vbo);
-        GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, uv1Buffer, GL46C.GL_STATIC_DRAW);
-        
-        // UV2 缓冲区（lightmap）
-        ByteBuffer uv2Buffer = ByteBuffer.allocateDirect(vertexCount * 8);
-        uv2Buffer.order(ByteOrder.LITTLE_ENDIAN);
-        
-        // Color 缓冲区——初始分配 GPU 存储（避免 Iris 模式下缓冲区为空）
-        GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, colorVbo);
-        GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, vertexCount * 16, GL46C.GL_DYNAMIC_DRAW);
-        
-        // 材质
-        Material[] mats = new Material[(int) nf.GetMaterialCount(model)];
-        for (int i = 0; i < mats.length; ++i) {
-            mats[i] = new Material();
-            String texFilename = nf.GetMaterialTex(model, i);
-            if (!texFilename.isEmpty()) {
-                MMDTextureManager.Texture mgrTex = MMDTextureManager.GetTexture(texFilename);
-                if (mgrTex != null) {
-                    mats[i].tex = mgrTex.tex;
-                    mats[i].hasAlpha = mgrTex.hasAlpha;
+        try {
+            // 初始化 GPU 蒙皮数据
+            nf.InitGpuSkinningData(model);
+            
+            BufferUploader.reset();
+            
+            int vertexCount = (int) nf.GetVertexCount(model);
+            int boneCount = nf.GetBoneCount(model);
+            
+            if (boneCount > SkinningComputeShader.MAX_BONES) {
+                logger.warn("模型骨骼数量 ({}) 超过最大支持 ({})，部分骨骼可能无法正确渲染", 
+                    boneCount, SkinningComputeShader.MAX_BONES);
+            }
+            logger.info("GPU 蒙皮模型加载（Compute Shader）: {} 顶点, {} 骨骼", vertexCount, boneCount);
+            
+            // 创建 VAO 和 VBO
+            vao = GL46C.glGenVertexArrays();
+            indexVbo = GL46C.glGenBuffers();
+            posVbo = GL46C.glGenBuffers();
+            norVbo = GL46C.glGenBuffers();
+            uv0Vbo = GL46C.glGenBuffers();
+            boneIdxVbo = GL46C.glGenBuffers();
+            boneWgtVbo = GL46C.glGenBuffers();
+            colorVbo = GL46C.glGenBuffers();
+            uv1Vbo = GL46C.glGenBuffers();
+            uv2Vbo = GL46C.glGenBuffers();
+            
+            GL46C.glBindVertexArray(vao);
+            
+            // 索引缓冲区
+            int indexElementSize = (int) nf.GetIndexElementSize(model);
+            int indexCount = (int) nf.GetIndexCount(model);
+            int indexSize = indexCount * indexElementSize;
+            long indexData = nf.GetIndices(model);
+            ByteBuffer indexBuffer = ByteBuffer.allocateDirect(indexSize);
+            for (int i = 0; i < indexSize; ++i) {
+                indexBuffer.put(nf.ReadByte(indexData, i));
+            }
+            indexBuffer.position(0);
+            GL46C.glBindBuffer(GL46C.GL_ELEMENT_ARRAY_BUFFER, indexVbo);
+            GL46C.glBufferData(GL46C.GL_ELEMENT_ARRAY_BUFFER, indexBuffer, GL46C.GL_STATIC_DRAW);
+            
+            int indexType = switch (indexElementSize) {
+                case 1 -> GL46C.GL_UNSIGNED_BYTE;
+                case 2 -> GL46C.GL_UNSIGNED_SHORT;
+                case 4 -> GL46C.GL_UNSIGNED_INT;
+                default -> 0;
+            };
+            
+            // 原始顶点位置（静态，用于 Compute Shader 输入）
+            ByteBuffer posBuffer = ByteBuffer.allocateDirect(vertexCount * 12);
+            posBuffer.order(ByteOrder.LITTLE_ENDIAN);
+            int copiedPos = nf.CopyOriginalPositionsToBuffer(model, posBuffer, vertexCount);
+            if (copiedPos == 0) {
+                logger.warn("原始顶点位置数据复制失败");
+            }
+            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, posVbo);
+            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, posBuffer, GL46C.GL_STATIC_DRAW);
+            
+            // 原始法线（静态）
+            ByteBuffer norBuffer = ByteBuffer.allocateDirect(vertexCount * 12);
+            norBuffer.order(ByteOrder.LITTLE_ENDIAN);
+            int copiedNor = nf.CopyOriginalNormalsToBuffer(model, norBuffer, vertexCount);
+            if (copiedNor == 0) {
+                logger.warn("原始法线数据复制失败");
+            }
+            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, norVbo);
+            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, norBuffer, GL46C.GL_STATIC_DRAW);
+            
+            // UV（静态）
+            ByteBuffer uv0Buffer = ByteBuffer.allocateDirect(vertexCount * 8);
+            uv0Buffer.order(ByteOrder.LITTLE_ENDIAN);
+            long uvData = nf.GetUVs(model);
+            nf.CopyDataToByteBuffer(uv0Buffer, uvData, vertexCount * 8);
+            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, uv0Vbo);
+            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, uv0Buffer, GL46C.GL_STATIC_DRAW);
+            
+            // 骨骼索引（静态，ivec4）
+            ByteBuffer boneIndicesByteBuffer = ByteBuffer.allocateDirect(vertexCount * 16);
+            boneIndicesByteBuffer.order(ByteOrder.LITTLE_ENDIAN);
+            int copiedIdx = nf.CopyBoneIndicesToBuffer(model, boneIndicesByteBuffer, vertexCount);
+            if (copiedIdx == 0) {
+                logger.warn("骨骼索引数据复制失败");
+            }
+            IntBuffer boneIndicesBuffer = boneIndicesByteBuffer.asIntBuffer();
+            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, boneIdxVbo);
+            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, boneIndicesBuffer, GL46C.GL_STATIC_DRAW);
+            
+            // 骨骼权重（静态，vec4）
+            ByteBuffer boneWeightsByteBuffer = ByteBuffer.allocateDirect(vertexCount * 16);
+            boneWeightsByteBuffer.order(ByteOrder.LITTLE_ENDIAN);
+            int copiedWgt = nf.CopyBoneWeightsToBuffer(model, boneWeightsByteBuffer, vertexCount);
+            if (copiedWgt == 0) {
+                logger.warn("骨骼权重数据复制失败");
+            }
+            FloatBuffer boneWeightsFloatBuffer = boneWeightsByteBuffer.asFloatBuffer();
+            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, boneWgtVbo);
+            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, boneWeightsFloatBuffer, GL46C.GL_STATIC_DRAW);
+            
+            // 顶点颜色缓冲区（Minecraft 标准属性：白色 + 全不透明）
+            ByteBuffer colorBuffer = ByteBuffer.allocateDirect(vertexCount * 16);
+            colorBuffer.order(ByteOrder.LITTLE_ENDIAN);
+            
+            // UV1 缓冲区（overlay）— 静态数据，创建时即上传到 GPU
+            ByteBuffer uv1Buffer = ByteBuffer.allocateDirect(vertexCount * 8);
+            uv1Buffer.order(ByteOrder.LITTLE_ENDIAN);
+            for (int i = 0; i < vertexCount; i++) {
+                uv1Buffer.putInt(15);
+                uv1Buffer.putInt(15);
+            }
+            uv1Buffer.flip();
+            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, uv1Vbo);
+            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, uv1Buffer, GL46C.GL_STATIC_DRAW);
+            
+            // UV2 缓冲区（lightmap）
+            ByteBuffer uv2Buffer = ByteBuffer.allocateDirect(vertexCount * 8);
+            uv2Buffer.order(ByteOrder.LITTLE_ENDIAN);
+            
+            // Color 缓冲区——初始分配 GPU 存储（避免 Iris 模式下缓冲区为空）
+            GL46C.glBindBuffer(GL46C.GL_ARRAY_BUFFER, colorVbo);
+            GL46C.glBufferData(GL46C.GL_ARRAY_BUFFER, vertexCount * 16, GL46C.GL_DYNAMIC_DRAW);
+            
+            // 材质
+            Material[] mats = new Material[(int) nf.GetMaterialCount(model)];
+            for (int i = 0; i < mats.length; ++i) {
+                mats[i] = new Material();
+                String texFilename = nf.GetMaterialTex(model, i);
+                if (!texFilename.isEmpty()) {
+                    MMDTextureManager.Texture mgrTex = MMDTextureManager.GetTexture(texFilename);
+                    if (mgrTex != null) {
+                        mats[i].tex = mgrTex.tex;
+                        mats[i].hasAlpha = mgrTex.hasAlpha;
+                    }
                 }
             }
-        }
-        
-        // lightMap 材质
-        Material lightMapMaterial = new Material();
-        MMDTextureManager.Texture mgrTex = MMDTextureManager.GetTexture(modelDir + "/lightMap.png");
-        if (mgrTex != null) {
-            lightMapMaterial.tex = mgrTex.tex;
-            lightMapMaterial.hasAlpha = mgrTex.hasAlpha;
-        } else {
-            lightMapMaterial.tex = GL46C.glGenTextures();
-            lightMapMaterial.ownsTexture = true;
-            GL46C.glBindTexture(GL46C.GL_TEXTURE_2D, lightMapMaterial.tex);
-            ByteBuffer texBuffer = ByteBuffer.allocateDirect(16 * 16 * 4);
-            texBuffer.order(ByteOrder.LITTLE_ENDIAN);
-            for (int i = 0; i < 16 * 16; i++) {
-                texBuffer.put((byte) 255);
-                texBuffer.put((byte) 255);
-                texBuffer.put((byte) 255);
-                texBuffer.put((byte) 255);
+            
+            // lightMap 材质
+            lightMapMaterial = new Material();
+            MMDTextureManager.Texture mgrTex = MMDTextureManager.GetTexture(modelDir + "/lightMap.png");
+            if (mgrTex != null) {
+                lightMapMaterial.tex = mgrTex.tex;
+                lightMapMaterial.hasAlpha = mgrTex.hasAlpha;
+            } else {
+                lightMapMaterial.tex = GL46C.glGenTextures();
+                lightMapMaterial.ownsTexture = true;
+                GL46C.glBindTexture(GL46C.GL_TEXTURE_2D, lightMapMaterial.tex);
+                ByteBuffer texBuffer = ByteBuffer.allocateDirect(16 * 16 * 4);
+                texBuffer.order(ByteOrder.LITTLE_ENDIAN);
+                for (int i = 0; i < 16 * 16; i++) {
+                    texBuffer.put((byte) 255);
+                    texBuffer.put((byte) 255);
+                    texBuffer.put((byte) 255);
+                    texBuffer.put((byte) 255);
+                }
+                texBuffer.flip();
+                GL46C.glTexImage2D(GL46C.GL_TEXTURE_2D, 0, GL46C.GL_RGBA, 16, 16, 0, GL46C.GL_RGBA, GL46C.GL_UNSIGNED_BYTE, texBuffer);
+                GL46C.glTexParameteri(GL46C.GL_TEXTURE_2D, GL46C.GL_TEXTURE_MAX_LEVEL, 0);
+                GL46C.glTexParameteri(GL46C.GL_TEXTURE_2D, GL46C.GL_TEXTURE_MIN_FILTER, GL46C.GL_LINEAR);
+                GL46C.glTexParameteri(GL46C.GL_TEXTURE_2D, GL46C.GL_TEXTURE_MAG_FILTER, GL46C.GL_LINEAR);
+                GL46C.glBindTexture(GL46C.GL_TEXTURE_2D, 0);
+                lightMapMaterial.hasAlpha = true;
             }
-            texBuffer.flip();
-            GL46C.glTexImage2D(GL46C.GL_TEXTURE_2D, 0, GL46C.GL_RGBA, 16, 16, 0, GL46C.GL_RGBA, GL46C.GL_UNSIGNED_BYTE, texBuffer);
-            GL46C.glTexParameteri(GL46C.GL_TEXTURE_2D, GL46C.GL_TEXTURE_MAX_LEVEL, 0);
-            GL46C.glTexParameteri(GL46C.GL_TEXTURE_2D, GL46C.GL_TEXTURE_MIN_FILTER, GL46C.GL_LINEAR);
-            GL46C.glTexParameteri(GL46C.GL_TEXTURE_2D, GL46C.GL_TEXTURE_MAG_FILTER, GL46C.GL_LINEAR);
-            GL46C.glBindTexture(GL46C.GL_TEXTURE_2D, 0);
-            lightMapMaterial.hasAlpha = true;
+            
+            // 骨骼矩阵缓冲区（统一使用 MemoryUtil，在 dispose() 中显式释放）
+            boneMatricesBuffer = MemoryUtil.memAllocFloat(boneCount * 16);
+            boneMatricesByteBuffer = MemoryUtil.memAlloc(boneCount * 64);
+            boneMatricesByteBuffer.order(ByteOrder.LITTLE_ENDIAN);
+            
+            // 创建 Compute Shader 输出缓冲区（每实例独立，双重用途：SSBO + VBO）
+            outputBuffers = SkinningComputeShader.createOutputBuffers(vertexCount);
+            
+            // 创建骨骼矩阵 SSBO（每实例独立）
+            boneMatrixSSBO = SkinningComputeShader.createBoneMatrixBuffer();
+            
+            // 预分配矩阵缓冲区
+            modelViewMatBuff = MemoryUtil.memAllocFloat(16);
+            projMatBuff = MemoryUtil.memAllocFloat(16);
+            
+            // 初始化 Morph 数据
+            nf.InitGpuMorphData(model);
+            int morphCount = (int) nf.GetVertexMorphCount(model);
+            if (morphCount > 0) {
+                morphWeightsBuffer = MemoryUtil.memAllocFloat(morphCount);
+                morphBuffers = SkinningComputeShader.createMorphBuffers(morphCount);
+                logger.info("GPU Morph 初始化: {} 个顶点 Morph", morphCount);
+            }
+            
+            // 构建结果
+            MMDModelGpuSkinning result = new MMDModelGpuSkinning();
+            result.model = model;
+            result.modelDir = modelDir;
+            result.vertexCount = vertexCount;
+            result.vertexArrayObject = vao;
+            result.indexBufferObject = indexVbo;
+            result.positionBufferObject = posVbo;
+            result.normalBufferObject = norVbo;
+            result.uv0BufferObject = uv0Vbo;
+            result.boneIndicesBufferObject = boneIdxVbo;
+            result.boneWeightsBufferObject = boneWgtVbo;
+            result.colorBufferObject = colorVbo;
+            result.uv1BufferObject = uv1Vbo;
+            result.uv2BufferObject = uv2Vbo;
+            result.skinnedPositionsBuffer = outputBuffers[0];
+            result.skinnedNormalsBuffer = outputBuffers[1];
+            result.boneMatrixSSBO = boneMatrixSSBO;
+            result.posBuffer = posBuffer;
+            result.norBuffer = norBuffer;
+            result.uv0Buffer = uv0Buffer;
+            result.colorBuffer = colorBuffer;
+            result.uv1Buffer = uv1Buffer;
+            result.uv2Buffer = uv2Buffer;
+            result.boneMatricesBuffer = boneMatricesBuffer;
+            result.boneMatricesByteBuffer = boneMatricesByteBuffer;
+            result.indexElementSize = indexElementSize;
+            result.indexType = indexType;
+            result.mats = mats;
+            result.lightMapMaterial = lightMapMaterial;
+            result.modelViewMatBuff = modelViewMatBuff;
+            result.projMatBuff = projMatBuff;
+            result.vertexMorphCount = morphCount;
+            if (morphCount > 0) {
+                result.morphWeightsBuffer = morphWeightsBuffer;
+                result.morphWeightsByteBuffer = ByteBuffer.allocateDirect(morphCount * 4);
+                result.morphWeightsByteBuffer.order(ByteOrder.LITTLE_ENDIAN);
+                result.morphOffsetsSSBO = morphBuffers[0];
+                result.morphWeightsSSBO = morphBuffers[1];
+            }
+            result.initialized = true;
+            
+            // 启用自动眨眼
+            nf.SetAutoBlinkEnabled(model, true);
+            
+            GL46C.glBindVertexArray(0);
+            logger.info("GPU 蒙皮模型创建成功（Compute Shader）: {} 顶点, {} 骨骼", vertexCount, boneCount);
+            return result;
+            
+        } catch (Exception e) {
+            // 异常时清理所有已分配的资源
+            logger.error("GPU 蒙皮模型创建失败，清理资源: {}", e.getMessage());
+            
+            // 清理原生模型
+            nf.DeleteModel(model);
+            
+            // 清理 GL 资源
+            if (vao > 0) GL46C.glDeleteVertexArrays(vao);
+            if (indexVbo > 0) GL46C.glDeleteBuffers(indexVbo);
+            if (posVbo > 0) GL46C.glDeleteBuffers(posVbo);
+            if (norVbo > 0) GL46C.glDeleteBuffers(norVbo);
+            if (uv0Vbo > 0) GL46C.glDeleteBuffers(uv0Vbo);
+            if (boneIdxVbo > 0) GL46C.glDeleteBuffers(boneIdxVbo);
+            if (boneWgtVbo > 0) GL46C.glDeleteBuffers(boneWgtVbo);
+            if (colorVbo > 0) GL46C.glDeleteBuffers(colorVbo);
+            if (uv1Vbo > 0) GL46C.glDeleteBuffers(uv1Vbo);
+            if (uv2Vbo > 0) GL46C.glDeleteBuffers(uv2Vbo);
+            if (outputBuffers != null) {
+                GL46C.glDeleteBuffers(outputBuffers[0]);
+                GL46C.glDeleteBuffers(outputBuffers[1]);
+            }
+            if (boneMatrixSSBO > 0) GL46C.glDeleteBuffers(boneMatrixSSBO);
+            if (morphBuffers != null) {
+                GL46C.glDeleteBuffers(morphBuffers[0]);
+                GL46C.glDeleteBuffers(morphBuffers[1]);
+            }
+            if (lightMapMaterial != null && lightMapMaterial.ownsTexture && lightMapMaterial.tex > 0) {
+                GL46C.glDeleteTextures(lightMapMaterial.tex);
+            }
+            
+            // 清理 MemoryUtil 分配的缓冲区
+            if (boneMatricesBuffer != null) MemoryUtil.memFree(boneMatricesBuffer);
+            if (boneMatricesByteBuffer != null) MemoryUtil.memFree(boneMatricesByteBuffer);
+            if (modelViewMatBuff != null) MemoryUtil.memFree(modelViewMatBuff);
+            if (projMatBuff != null) MemoryUtil.memFree(projMatBuff);
+            if (morphWeightsBuffer != null) MemoryUtil.memFree(morphWeightsBuffer);
+            
+            return null;
         }
-        
-        // 骨骼矩阵缓冲区
-        FloatBuffer boneMatricesBuffer = MemoryUtil.memAllocFloat(boneCount * 16);
-        ByteBuffer boneMatricesByteBuffer = ByteBuffer.allocateDirect(boneCount * 64);
-        boneMatricesByteBuffer.order(ByteOrder.LITTLE_ENDIAN);
-        
-        // 创建 Compute Shader 输出缓冲区（每实例独立，双重用途：SSBO + VBO）
-        int[] outputBuffers = SkinningComputeShader.createOutputBuffers(vertexCount);
-        
-        // 创建骨骼矩阵 SSBO（每实例独立）
-        int boneMatrixSSBO = SkinningComputeShader.createBoneMatrixBuffer();
-        
-        // 构建结果
-        MMDModelGpuSkinning result = new MMDModelGpuSkinning();
-        result.model = model;
-        result.modelDir = modelDir;
-        result.vertexCount = vertexCount;
-        result.vertexArrayObject = vao;
-        result.indexBufferObject = indexVbo;
-        result.positionBufferObject = posVbo;
-        result.normalBufferObject = norVbo;
-        result.uv0BufferObject = uv0Vbo;
-        result.boneIndicesBufferObject = boneIdxVbo;
-        result.boneWeightsBufferObject = boneWgtVbo;
-        result.colorBufferObject = colorVbo;
-        result.uv1BufferObject = uv1Vbo;
-        result.uv2BufferObject = uv2Vbo;
-        result.skinnedPositionsBuffer = outputBuffers[0];
-        result.skinnedNormalsBuffer = outputBuffers[1];
-        result.boneMatrixSSBO = boneMatrixSSBO;
-        result.posBuffer = posBuffer;
-        result.norBuffer = norBuffer;
-        result.uv0Buffer = uv0Buffer;
-        result.colorBuffer = colorBuffer;
-        result.uv1Buffer = uv1Buffer;
-        result.uv2Buffer = uv2Buffer;
-        result.boneMatricesBuffer = boneMatricesBuffer;
-        result.boneMatricesByteBuffer = boneMatricesByteBuffer;
-        result.indexElementSize = indexElementSize;
-        result.indexType = indexType;
-        result.mats = mats;
-        result.lightMapMaterial = lightMapMaterial;
-        result.modelViewMatBuff = MemoryUtil.memAllocFloat(16);
-        result.projMatBuff = MemoryUtil.memAllocFloat(16);
-        result.initialized = true;
-        
-        // 初始化 Morph 数据
-        nf.InitGpuMorphData(model);
-        int morphCount = (int) nf.GetVertexMorphCount(model);
-        result.vertexMorphCount = morphCount;
-        if (morphCount > 0) {
-            result.morphWeightsBuffer = MemoryUtil.memAllocFloat(morphCount);
-            result.morphWeightsByteBuffer = ByteBuffer.allocateDirect(morphCount * 4);
-            result.morphWeightsByteBuffer.order(ByteOrder.LITTLE_ENDIAN);
-            int[] morphBuffers = SkinningComputeShader.createMorphBuffers(morphCount);
-            result.morphOffsetsSSBO = morphBuffers[0];
-            result.morphWeightsSSBO = morphBuffers[1];
-            logger.info("GPU Morph 初始化: {} 个顶点 Morph", morphCount);
-        }
-        
-        // 启用自动眨眼
-        nf.SetAutoBlinkEnabled(model, true);
-        
-        GL46C.glBindVertexArray(0);
-        logger.info("GPU 蒙皮模型创建成功（Compute Shader）: {} 顶点, {} 骨骼", vertexCount, boneCount);
-        return result;
     }
     
     @Override
@@ -421,8 +483,8 @@ public class MMDModelGpuSkinning implements IMMDModel {
         float yawRad = context.isInventoryScene() ? -headAngleY * ((float) Math.PI / 180F) : headAngleY * ((float) Math.PI / 180F);
         nf.SetHeadAngle(model, pitchRad, yawRad, 0.0f, context.isWorldScene());
         
-        // 使用公共工具类更新眼球追踪
-        EyeTrackingHelper.updateEyeTracking(nf, model, entityIn, entityYaw, tickDelta);
+        // 使用公共工具类更新眼球追踪（传递模型名称，使用每模型独立配置）
+        EyeTrackingHelper.updateEyeTracking(nf, model, entityIn, entityYaw, tickDelta, getModelName());
         
         // 传递实体位置和朝向给物理系统（用于人物移动时的惯性效果）
         // 位置用于计算速度差，朝向用于将世界速度转换到模型局部空间
@@ -448,9 +510,16 @@ public class MMDModelGpuSkinning implements IMMDModel {
         
         float deltaTime = (currentTime - lastUpdateTime) / 1000.0f;
         lastUpdateTime = currentTime;
-        deltaTime = Mth.clamp(deltaTime, MIN_DELTA_TIME, MAX_DELTA_TIME);
         
-        // 只更新动画，不执行 CPU 蒙皮
+        // 跳过零或负增量帧，避免高帧率下动画加速
+        if (deltaTime <= 0.0f) {
+            return;
+        }
+        // 限制 deltaTime 上限，防止暂停后物理爆炸
+        if (deltaTime > MAX_DELTA_TIME) {
+            deltaTime = MAX_DELTA_TIME;
+        }
+        
         nf.UpdateAnimationOnly(model, deltaTime);
     }
     
@@ -482,7 +551,8 @@ public class MMDModelGpuSkinning implements IMMDModel {
         deliverStack.mulPose(tempQuat.identity().rotateY(-yawRad));
         deliverStack.mulPose(tempQuat.identity().rotateX(entityPitch * ((float) Math.PI / 180F)));
         deliverStack.translate(entityTrans.x, entityTrans.y, entityTrans.z);
-        deliverStack.scale(0.09f, 0.09f, 0.09f);
+        float baseScale = 0.09f * com.shiroha.mmdskin.config.ModelConfigManager.getConfig(getModelName()).modelScale;
+        deliverStack.scale(baseScale, baseScale, baseScale);
         
         uploadBoneMatrices();
         if (vertexMorphCount > 0) {
@@ -843,11 +913,22 @@ public class MMDModelGpuSkinning implements IMMDModel {
         if (!morphDataUploaded) {
             long offsetsSize = nf.GetGpuMorphOffsetsSize(model);
             if (offsetsSize > 0) {
-                ByteBuffer offsetsBuffer = ByteBuffer.allocateDirect((int) offsetsSize);
-                offsetsBuffer.order(ByteOrder.LITTLE_ENDIAN);
-                nf.CopyGpuMorphOffsetsToBuffer(model, offsetsBuffer);
-                computeShader.uploadMorphOffsets(morphOffsetsSSBO, offsetsBuffer);
-                morphDataUploaded = true;
+                // 边界检查：避免 long 截断为负数导致 memAlloc 异常
+                if (offsetsSize > Integer.MAX_VALUE) {
+                    logger.error("Morph 数据过大 ({} bytes)，超过 2GB 限制，跳过 GPU Morph", offsetsSize);
+                    vertexMorphCount = 0; // 禁用 Morph 以避免后续错误
+                } else {
+                    // 使用 MemoryUtil.memAlloc 分配原生内存，避免 Java 直接内存池 OOM
+                    ByteBuffer offsetsBuffer = MemoryUtil.memAlloc((int) offsetsSize);
+                    offsetsBuffer.order(ByteOrder.LITTLE_ENDIAN);
+                    try {
+                        nf.CopyGpuMorphOffsetsToBuffer(model, offsetsBuffer);
+                        computeShader.uploadMorphOffsets(morphOffsetsSSBO, offsetsBuffer);
+                        morphDataUploaded = true;
+                    } finally {
+                        MemoryUtil.memFree(offsetsBuffer);
+                    }
+                }
             }
         }
         
@@ -960,8 +1041,23 @@ public class MMDModelGpuSkinning implements IMMDModel {
     }
     
     @Override
+    public String getModelName() {
+        if (cachedModelName == null) {
+            cachedModelName = IMMDModel.super.getModelName();
+        }
+        return cachedModelName;
+    }
+    
+    @Override
     public void dispose() {
-        nf.DeleteModel(model);
+        // 防护：避免 double-free 和 use-after-free
+        if (!initialized) return;
+        initialized = false;
+        
+        if (model != 0) {
+            nf.DeleteModel(model);
+            model = 0;
+        }
         
         // 释放 OpenGL 资源
         GL46C.glDeleteVertexArrays(vertexArrayObject);
@@ -981,17 +1077,37 @@ public class MMDModelGpuSkinning implements IMMDModel {
         if (boneMatrixSSBO > 0) GL46C.glDeleteBuffers(boneMatrixSSBO);
         if (morphOffsetsSSBO > 0) GL46C.glDeleteBuffers(morphOffsetsSSBO);
         if (morphWeightsSSBO > 0) GL46C.glDeleteBuffers(morphWeightsSSBO);
+        boneMatrixSSBO = 0;
+        morphOffsetsSSBO = 0;
+        morphWeightsSSBO = 0;
         
         // 释放自建的 lightMap 纹理（来自 MMDTextureManager 的不在此删除）
         if (lightMapMaterial != null && lightMapMaterial.ownsTexture && lightMapMaterial.tex > 0) {
             GL46C.glDeleteTextures(lightMapMaterial.tex);
+            lightMapMaterial.tex = 0;
         }
         
         // 释放 MemoryUtil 分配的缓冲区
-        if (boneMatricesBuffer != null) MemoryUtil.memFree(boneMatricesBuffer);
-        if (morphWeightsBuffer != null) MemoryUtil.memFree(morphWeightsBuffer);
-        if (modelViewMatBuff != null) MemoryUtil.memFree(modelViewMatBuff);
-        if (projMatBuff != null) MemoryUtil.memFree(projMatBuff);
+        if (boneMatricesBuffer != null) {
+            MemoryUtil.memFree(boneMatricesBuffer);
+            boneMatricesBuffer = null;
+        }
+        if (boneMatricesByteBuffer != null) {
+            MemoryUtil.memFree(boneMatricesByteBuffer);
+            boneMatricesByteBuffer = null;
+        }
+        if (morphWeightsBuffer != null) {
+            MemoryUtil.memFree(morphWeightsBuffer);
+            morphWeightsBuffer = null;
+        }
+        if (modelViewMatBuff != null) {
+            MemoryUtil.memFree(modelViewMatBuff);
+            modelViewMatBuff = null;
+        }
+        if (projMatBuff != null) {
+            MemoryUtil.memFree(projMatBuff);
+            projMatBuff = null;
+        }
     }
     
     /** @deprecated 使用 {@link #dispose()} 替代 */

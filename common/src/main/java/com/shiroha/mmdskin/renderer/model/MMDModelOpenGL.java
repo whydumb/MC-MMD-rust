@@ -73,6 +73,7 @@ public class MMDModelOpenGL implements IMMDModel {
 
     long model;
     String modelDir;
+    private String cachedModelName;
     int vertexCount;
     ByteBuffer posBuffer, colorBuffer, norBuffer, uv0Buffer, uv1Buffer, uv2Buffer;
     int vertexArrayObject;
@@ -107,7 +108,13 @@ public class MMDModelOpenGL implements IMMDModel {
     public static void InitShader() {
         //Init Shader
         ShaderProvider.Init();
-        MMDShaderProgram = ShaderProvider.getProgram();
+        if (ShaderProvider.isReady()) {
+            MMDShaderProgram = ShaderProvider.getProgram();
+        } else {
+            logger.warn("MMD Shader 初始化失败，已自动禁用自定义着色器");
+            MMDShaderProgram = 0;
+            isMMDShaderEnabled = false;
+        }
         isShaderInited = true;
     }
 
@@ -317,8 +324,8 @@ public class MMDModelOpenGL implements IMMDModel {
         float yawRad = context.isInventoryScene() ? -headAngleY * ((float)Math.PI / 180F) : headAngleY * ((float)Math.PI / 180F);
         nf.SetHeadAngle(model, pitchRad, yawRad, 0.0f, context.isWorldScene());
         
-        // 使用公共工具类更新眼球追踪
-        EyeTrackingHelper.updateEyeTracking(nf, model, entityIn, entityYaw, tickDelta);
+        // 使用公共工具类更新眼球追踪（传递模型名称，使用每模型独立配置）
+        EyeTrackingHelper.updateEyeTracking(nf, model, entityIn, entityYaw, tickDelta, getModelName());
         
         // 传递实体位置和朝向给物理系统（用于人物移动时的惯性效果）
         final float MODEL_SCALE = 0.09f;
@@ -355,6 +362,14 @@ public class MMDModelOpenGL implements IMMDModel {
     @Override
     public String GetModelDir() {
         return modelDir;
+    }
+    
+    @Override
+    public String getModelName() {
+        if (cachedModelName == null) {
+            cachedModelName = IMMDModel.super.getModelName();
+        }
+        return cachedModelName;
     }
 
     void Update() {
@@ -409,7 +424,8 @@ public class MMDModelOpenGL implements IMMDModel {
         deliverStack.mulPose(tempQuat.identity().rotateY(-yawRad));
         deliverStack.mulPose(tempQuat.identity().rotateX(entityPitch*((float)Math.PI / 180F)));
         deliverStack.translate(entityTrans.x, entityTrans.y, entityTrans.z);
-        deliverStack.scale(0.09f, 0.09f, 0.09f);
+        float baseScale = 0.09f * com.shiroha.mmdskin.config.ModelConfigManager.getConfig(getModelName()).modelScale;
+        deliverStack.scale(baseScale, baseScale, baseScale);
         
         // 检查是否启用 Toon 渲染
         boolean useToon = ConfigManager.isToonRenderingEnabled();
