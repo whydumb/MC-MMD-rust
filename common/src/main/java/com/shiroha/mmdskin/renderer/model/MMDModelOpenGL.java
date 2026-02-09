@@ -2,6 +2,7 @@ package com.shiroha.mmdskin.renderer.model;
 
 import com.shiroha.mmdskin.MmdSkinClient;
 import com.shiroha.mmdskin.config.ConfigManager;
+import com.shiroha.mmdskin.renderer.camera.MMDCameraController;
 import com.shiroha.mmdskin.renderer.core.EyeTrackingHelper;
 import com.shiroha.mmdskin.renderer.core.IMMDModel;
 import com.shiroha.mmdskin.renderer.core.IrisCompat;
@@ -94,7 +95,7 @@ public class MMDModelOpenGL implements IMMDModel {
     
     // 时间追踪（用于计算 deltaTime）
     private long lastUpdateTime = -1; // -1 表示未初始化
-    private static final float MAX_DELTA_TIME = 0.05f; // 最大 50ms，防止暂停后跳跃
+    private static final float MAX_DELTA_TIME = 0.25f; // 最大 250ms（4FPS），防止暂停后跳跃
     
     private FloatBuffer modelViewMatBuff;          // 预分配的矩阵缓冲区
     private FloatBuffer projMatBuff;
@@ -336,19 +337,26 @@ public class MMDModelOpenGL implements IMMDModel {
     }
 
     private void renderLivingEntity(LivingEntity entityIn, float entityYaw, float entityPitch, Vector3f entityTrans, float tickDelta, PoseStack mat, int packedLight, RenderContext context) {
-        // 计算头部角度
-        float headAngleX = Mth.clamp(entityIn.getXRot(), -50.0f, 50.0f);
-        float headAngleY = (entityYaw - Mth.lerp(tickDelta, entityIn.yHeadRotO, entityIn.yHeadRot)) % 360.0f;
-        if (headAngleY < -180.0f) headAngleY += 360.0f;
-        else if (headAngleY > 180.0f) headAngleY -= 360.0f;
-        headAngleY = Mth.clamp(headAngleY, -80.0f, 80.0f);
-        
-        float pitchRad = headAngleX * ((float)Math.PI / 180F);
-        float yawRad = context.isInventoryScene() ? -headAngleY * ((float)Math.PI / 180F) : headAngleY * ((float)Math.PI / 180F);
-        nf.SetHeadAngle(model, pitchRad, yawRad, 0.0f, context.isWorldScene());
+        // 头部角度处理（舞台播放时归零，由 VMD 动画控制）
+        boolean stagePlaying = MMDCameraController.getInstance().isStagePlayingModel(model);
+        if (stagePlaying) {
+            nf.SetHeadAngle(model, 0.0f, 0.0f, 0.0f, context.isWorldScene());
+        } else {
+            float headAngleX = Mth.clamp(entityIn.getXRot(), -50.0f, 50.0f);
+            float headAngleY = (entityYaw - Mth.lerp(tickDelta, entityIn.yHeadRotO, entityIn.yHeadRot)) % 360.0f;
+            if (headAngleY < -180.0f) headAngleY += 360.0f;
+            else if (headAngleY > 180.0f) headAngleY -= 360.0f;
+            headAngleY = Mth.clamp(headAngleY, -80.0f, 80.0f);
+            
+            float pitchRad = headAngleX * ((float)Math.PI / 180F);
+            float yawRad = context.isInventoryScene() ? -headAngleY * ((float)Math.PI / 180F) : headAngleY * ((float)Math.PI / 180F);
+            nf.SetHeadAngle(model, pitchRad, yawRad, 0.0f, context.isWorldScene());
+        }
         
         // 使用公共工具类更新眼球追踪（传递模型名称，使用每模型独立配置）
-        EyeTrackingHelper.updateEyeTracking(nf, model, entityIn, entityYaw, tickDelta, getModelName());
+        if (!stagePlaying) {
+            EyeTrackingHelper.updateEyeTracking(nf, model, entityIn, entityYaw, tickDelta, getModelName());
+        }
         
         // 传递实体位置和朝向给物理系统（用于人物移动时的惯性效果）
         final float MODEL_SCALE = 0.09f;
@@ -696,9 +704,9 @@ public class MMDModelOpenGL implements IMMDModel {
                 RenderSystem.enableCull();
             }
             if (mats[materialID].tex == 0)
-                MCinstance.getEntityRenderDispatcher().textureManager.bindForSetup(TextureManager.INTENTIONAL_MISSING_TEXTURE);
+                RenderSystem.setShaderTexture(0, MCinstance.getTextureManager().getTexture(TextureManager.INTENTIONAL_MISSING_TEXTURE).getId());
             else
-                GL46C.glBindTexture(GL46C.GL_TEXTURE_2D, mats[materialID].tex);
+                RenderSystem.setShaderTexture(0, mats[materialID].tex);
             long startPos = (long) nf.GetSubMeshBeginIndex(model, i) * indexElementSize;
             int count = nf.GetSubMeshVertexCount(model, i);
 
@@ -902,9 +910,9 @@ public class MMDModelOpenGL implements IMMDModel {
             }
             
             if (mats[materialID].tex == 0) {
-                MCinstance.getEntityRenderDispatcher().textureManager.bindForSetup(TextureManager.INTENTIONAL_MISSING_TEXTURE);
+                RenderSystem.setShaderTexture(0, MCinstance.getTextureManager().getTexture(TextureManager.INTENTIONAL_MISSING_TEXTURE).getId());
             } else {
-                GL46C.glBindTexture(GL46C.GL_TEXTURE_2D, mats[materialID].tex);
+                RenderSystem.setShaderTexture(0, mats[materialID].tex);
             }
             
             long startPos = (long) nf.GetSubMeshBeginIndex(model, i) * indexElementSize;
@@ -1020,5 +1028,10 @@ public class MMDModelOpenGL implements IMMDModel {
 
         shader.setSampler("Sampler1", lightMapMaterial.tex);
         shader.setSampler("Sampler2", lightMapMaterial.tex);
+        
+        // Iris 兼容：ExtendedShader.apply() 从 RenderSystem.getShaderTexture() 读取纹理，
+        // 而非 shader.setSampler() 设置的值，需要同步设置
+        RenderSystem.setShaderTexture(1, lightMapMaterial.tex);
+        RenderSystem.setShaderTexture(2, lightMapMaterial.tex);
     }
 }

@@ -1337,6 +1337,9 @@ impl MmdModel {
             physics.add_joint(pmx_joint);
         }
         
+        // 设置胸部-头发碰撞过滤（防止头发压塌胸部）
+        physics.setup_bust_hair_collision_filter();
+        
         // 统计刚体类型
         use crate::physics::RigidBodyType;
         let kinematic_count = physics.mmd_rigid_bodies.iter()

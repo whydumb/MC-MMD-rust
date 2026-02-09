@@ -333,14 +333,14 @@ public class MMDCameraController {
         }
         introStartFov = (float) mc.options.fov().get();
         
-        // 待机展示位置：玩家正前方 2 格 + 向上 1.5 格
+        // 待机展示位置：玩家正前方 3.5 格 + 向上 2.5 格
         if (mc.player != null) {
             float yawRad = (float) Math.toRadians(mc.player.getYRot());
-            standbyX = anchorX - Math.sin(yawRad) * 2.0;
-            standbyY = anchorY + 1.5;
-            standbyZ = anchorZ + Math.cos(yawRad) * 2.0;
+            standbyX = anchorX - Math.sin(yawRad) * 3.5;
+            standbyY = anchorY + 1.8;
+            standbyZ = anchorZ + Math.cos(yawRad) * 3.5;
             standbyYaw = mc.player.getYRot() + 180.0f;
-            standbyPitch = -17.0f;
+            standbyPitch = 15.0f;
         } else {
             standbyX = introStartX;
             standbyY = introStartY;
@@ -541,6 +541,10 @@ public class MMDCameraController {
      */
     public boolean isStagePlayingModel(long handle) {
         return state == StageState.PLAYING && modelHandle != 0 && modelHandle == handle;
+    }
+    
+    public float getAnchorYaw() {
+        return anchorYaw;
     }
     
     public boolean isCinematicMode() {

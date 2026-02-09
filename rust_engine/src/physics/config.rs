@@ -187,13 +187,13 @@ impl Default for PhysicsConfig {
             // 胸部刚体需要比头发更高的弹簧刚度来保持形状，
             // 同时需要较高的阻尼防止过度弹跳。
             bust_physics_enabled: true,
-            bust_linear_damping_scale: 1.5,
-            bust_angular_damping_scale: 1.5,
+            bust_linear_damping_scale: 2.0,
+            bust_angular_damping_scale: 2.0,
             bust_mass_scale: 1.0,
-            bust_linear_spring_stiffness_scale: 8.0,
-            bust_angular_spring_stiffness_scale: 8.0,
-            bust_linear_spring_damping_factor: 3.0,
-            bust_angular_spring_damping_factor: 3.0,
+            bust_linear_spring_stiffness_scale: 15.0,
+            bust_angular_spring_stiffness_scale: 15.0,
+            bust_linear_spring_damping_factor: 5.0,
+            bust_angular_spring_damping_factor: 5.0,
 
             // ====== 调试 ======
             // 是否启用关节约束
