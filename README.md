@@ -1,4 +1,4 @@
-# MC-MMD-rust
+# MC-MMD-rust LOL
 
 在 Minecraft 1.20.1 中实现 MMD（MikuMikuDance）模型渲染和物理模拟的 Mod。
 
