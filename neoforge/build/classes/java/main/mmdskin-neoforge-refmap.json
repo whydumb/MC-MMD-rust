@@ -1,0 +1,54 @@
+{
+  "mappings": {
+    "com/shiroha/mmdskin/mixin/forge/ForgePlayerRendererMixin": {
+      "render": "Lnet/minecraft/client/renderer/entity/player/PlayerRenderer;m_7392_(Lnet/minecraft/client/player/AbstractClientPlayer;FFLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;I)V"
+    },
+    "com/shiroha/mmdskin/mixin/forge/ItemInHandRendererMixin": {
+      "renderHandsWithItems": "Lnet/minecraft/client/renderer/ItemInHandRenderer;m_109314_(FLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;Lnet/minecraft/client/player/LocalPlayer;I)V"
+    },
+    "com/shiroha/mmdskin/mixin/forge/MouseHandlerMixin": {
+      "onPress": "Lnet/minecraft/client/MouseHandler;m_91530_(JIII)V"
+    },
+    "com/shiroha/mmdskin/mixin/forge/LevelRendererMixin": {
+      "renderLevel": "Lnet/minecraft/client/renderer/LevelRenderer;m_109599_(Lcom/mojang/blaze3d/vertex/PoseStack;FJZLnet/minecraft/client/Camera;Lnet/minecraft/client/renderer/GameRenderer;Lnet/minecraft/client/renderer/LightTexture;Lorg/joml/Matrix4f;)V",
+      "Lnet/minecraft/client/Camera;isDetached()Z": "Lnet/minecraft/client/Camera;m_90594_()Z"
+    },
+    "com/shiroha/mmdskin/mixin/forge/CameraMixin": {
+      "setup": "Lnet/minecraft/client/Camera;m_90575_(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/world/entity/Entity;ZZF)V"
+    },
+    "com/shiroha/mmdskin/mixin/forge/GameRendererMixin": {
+      "getFov": "Lnet/minecraft/client/renderer/GameRenderer;m_109141_(Lnet/minecraft/client/Camera;FZ)D"
+    },
+    "com/shiroha/mmdskin/mixin/forge/MinecraftMixin": {
+      "pauseGame": "Lnet/minecraft/client/Minecraft;m_91358_(Z)V",
+      "handleKeybinds": "Lnet/minecraft/client/Minecraft;m_91279_()V"
+    }
+  },
+  "data": {
+    "named:intermediary": {
+      "com/shiroha/mmdskin/mixin/forge/ForgePlayerRendererMixin": {
+        "render": "Lnet/minecraft/client/renderer/entity/player/PlayerRenderer;m_7392_(Lnet/minecraft/client/player/AbstractClientPlayer;FFLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;I)V"
+      },
+      "com/shiroha/mmdskin/mixin/forge/ItemInHandRendererMixin": {
+        "renderHandsWithItems": "Lnet/minecraft/client/renderer/ItemInHandRenderer;m_109314_(FLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource$BufferSource;Lnet/minecraft/client/player/LocalPlayer;I)V"
+      },
+      "com/shiroha/mmdskin/mixin/forge/MouseHandlerMixin": {
+        "onPress": "Lnet/minecraft/client/MouseHandler;m_91530_(JIII)V"
+      },
+      "com/shiroha/mmdskin/mixin/forge/LevelRendererMixin": {
+        "renderLevel": "Lnet/minecraft/client/renderer/LevelRenderer;m_109599_(Lcom/mojang/blaze3d/vertex/PoseStack;FJZLnet/minecraft/client/Camera;Lnet/minecraft/client/renderer/GameRenderer;Lnet/minecraft/client/renderer/LightTexture;Lorg/joml/Matrix4f;)V",
+        "Lnet/minecraft/client/Camera;isDetached()Z": "Lnet/minecraft/client/Camera;m_90594_()Z"
+      },
+      "com/shiroha/mmdskin/mixin/forge/CameraMixin": {
+        "setup": "Lnet/minecraft/client/Camera;m_90575_(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/world/entity/Entity;ZZF)V"
+      },
+      "com/shiroha/mmdskin/mixin/forge/GameRendererMixin": {
+        "getFov": "Lnet/minecraft/client/renderer/GameRenderer;m_109141_(Lnet/minecraft/client/Camera;FZ)D"
+      },
+      "com/shiroha/mmdskin/mixin/forge/MinecraftMixin": {
+        "pauseGame": "Lnet/minecraft/client/Minecraft;m_91358_(Z)V",
+        "handleKeybinds": "Lnet/minecraft/client/Minecraft;m_91279_()V"
+      }
+    }
+  }
+}

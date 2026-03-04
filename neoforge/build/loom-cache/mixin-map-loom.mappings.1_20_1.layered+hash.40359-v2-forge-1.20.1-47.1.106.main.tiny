@@ -1,0 +1,3 @@
+v1	named	intermediary
+METHOD	com/shiroha/mmdskin/mixin/forge/CameraMixin	(DDD)V	setPosition	m_90584_
+METHOD	com/shiroha/mmdskin/mixin/forge/CameraMixin	(FF)V	setRotation	m_90572_
